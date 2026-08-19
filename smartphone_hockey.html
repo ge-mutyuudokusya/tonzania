@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>スマホホッケー</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07111f;font-family:system-ui,sans-serif}
+body{display:flex;align-items:center;justify-content:center;color:white}
+#wrap{width:100vw;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
+#top{position:fixed;top:max(10px,env(safe-area-inset-top));left:0;right:0;z-index:2;text-align:center;pointer-events:none}
+#score{font-size:28px;font-weight:800;letter-spacing:3px;text-shadow:0 2px 10px #000}
+#hint{font-size:12px;opacity:.65;margin-top:2px}
+canvas{display:block;touch-action:none}
+#restart{position:fixed;bottom:max(16px,env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
+border:0;border-radius:999px;padding:10px 20px;background:rgba(255,255,255,.12);color:#fff;font-weight:700;
+backdrop-filter:blur(8px);display:none}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="top"><div id="score">0　-　0</div><div id="hint">自分のパックを指で動かして相手のゴールを狙おう</div></div>
+  <canvas id="game"></canvas>
+  <button id="restart">もう一度プレイ</button>
+</div>
+<script>
+const c=document.getElementById("game"),ctx=c.getContext("2d");
+const scoreEl=document.getElementById("score"), restart=document.getElementById("restart");
+let W,H,dpr,field={x:0,y:0,w:0,h:0};
+let player={x:0,y:0,r:34}, enemy={x:0,y:0,r:34}, puck={x:0,y:0,r:14,vx:0,vy:0};
+let ps=0,es=0,over=false,drag=false,last=0;
+
+function resize(){
+ dpr=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
+ c.width=W*dpr;c.height=H*dpr;c.style.width=W+"px";c.style.height=H+"px";ctx.setTransform(dpr,0,0,dpr,0,0);
+ const maxW=900, fw=Math.min(W-18,maxW), fh=Math.min(H-30,fw*1.35);
+ field.w=fw;field.h=fh;field.x=(W-fw)/2;field.y=(H-fh)/2;
+ player.r=Math.max(26,fw*.07);enemy.r=player.r;puck.r=Math.max(10,fw*.028);
+ resetPuck(0);
+}
+function resetPuck(dir){
+ puck.x=W/2;puck.y=H/2;
+ const a=(Math.random()-.5)*.8;
+ const speed=Math.max(260,W*.7);
+ puck.vx=Math.sin(a)*speed; puck.vy=(dir|| (Math.random()<.5?-1:1))*Math.cos(a)*speed;
+ player.x=W/2;player.y=field.y+field.h*.78;
+ enemy.x=W/2;enemy.y=field.y+field.h*.22;
+}
+function resetGame(){ps=es=0;over=false;restart.style.display="none";scoreEl.textContent="0　-　0";resetPuck(-1)}
+function circle(x,y,r,fill,shadow){
+ if(shadow){ctx.shadowBlur=18;ctx.shadowColor=shadow}
+ ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=fill;ctx.fill();ctx.shadowBlur=0;
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ // background
+ const bg=ctx.createLinearGradient(0,0,0,H);bg.addColorStop(0,"#0b2037");bg.addColorStop(1,"#040a12");
+ ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+ // rink
+ const rg=ctx.createLinearGradient(field.x,field.y,field.x,field.y+field.h);
+ rg.addColorStop(0,"#102f4c");rg.addColorStop(.5,"#0b263f");rg.addColorStop(1,"#102f4c");
+ ctx.fillStyle=rg;ctx.fillRect(field.x,field.y,field.w,field.h);
+ ctx.strokeStyle="rgba(255,255,255,.65)";ctx.lineWidth=3;ctx.strokeRect(field.x,field.y,field.w,field.h);
+ ctx.beginPath();ctx.moveTo(field.x,field.y+field.h/2);ctx.lineTo(field.x+field.w,field.y+field.h/2);
+ ctx.strokeStyle="rgba(255,255,255,.35)";ctx.lineWidth=2;ctx.stroke();
+ ctx.beginPath();ctx.arc(W/2,H/2,field.w*.12,0,Math.PI*2);ctx.stroke();
+ // goals
+ const gw=field.w*.38, gh=18;
+ ctx.fillStyle="#e74c3c";ctx.fillRect(W/2-gw/2,field.y-4,gw,gh);
+ ctx.fillStyle="#4aa3ff";ctx.fillRect(W/2-gw/2,field.y+field.h-gh+4,gw,gh);
+ // players
+ circle(player.x,player.y,player.r,"#55b7ff","#55b7ff");
+ circle(enemy.x,enemy.y,enemy.r,"#ff5c67","#ff5c67");
+ circle(puck.x,puck.y,puck.r,"#f5f7fa","#fff");
+ ctx.strokeStyle="rgba(0,0,0,.28)";ctx.lineWidth=3;ctx.beginPath();ctx.arc(puck.x,puck.y,puck.r*.6,0,Math.PI*2);ctx.stroke();
+ if(over){
+   ctx.fillStyle="rgba(0,0,0,.6)";ctx.fillRect(field.x,field.y,field.w,field.h);
+   ctx.textAlign="center";ctx.fillStyle="#fff";ctx.font="800 34px system-ui";
+   ctx.fillText(ps>es?"YOU WIN!":"GAME OVER",W/2,H/2-10);
+ }
+}
+function clampPlayer(p,ymin,ymax){
+ p.x=Math.max(field.x+p.r,Math.min(field.x+field.w-p.r,p.x));
+ p.y=Math.max(ymin+p.r,Math.min(ymax-p.r,p.y));
+}
+function movePlayer(x,y){player.x=x;player.y=y;clampPlayer(player,field.y+field.h/2,field.y+field.h)}
+function update(t){
+ const dt=Math.min((t-last)/1000,.025)||0;last=t;
+ if(!over){
+   puck.x+=puck.vx*dt;puck.y+=puck.vy*dt;
+   const friction=Math.pow(.997,dt*60);puck.vx*=friction;puck.vy*=friction;
+   // walls
+   if(puck.x-puck.r<field.x){puck.x=field.x+puck.r;puck.vx=Math.abs(puck.vx)}
+   if(puck.x+puck.r>field.x+field.w){puck.x=field.x+field.w-puck.r;puck.vx=-Math.abs(puck.vx)}
+   // goals / top-bottom
+   const goalW=field.w*.38, inGoal=Math.abs(puck.x-W/2)<goalW/2;
+   if(puck.y-puck.r<field.y){
+     if(inGoal){es++;scoreEl.textContent=ps+"　-　"+es; if(es>=5) end(); else resetPuck(1)}
+     else {puck.y=field.y+puck.r;puck.vy=Math.abs(puck.vy)}
+   }
+   if(puck.y+puck.r>field.y+field.h){
+     if(inGoal){ps++;scoreEl.textContent=ps+"　-　"+es; if(ps>=5) end(); else resetPuck(-1)}
+     else {puck.y=field.y+field.h-puck.r;puck.vy=-Math.abs(puck.vy)}
+   }
+   // enemy AI
+   const targetX=puck.x + puck.vx*.08;
+   enemy.x += Math.max(-1,Math.min(1,targetX-enemy.x))*Math.min(360*dt,Math.abs(targetX-enemy.x));
+   enemy.y += Math.max(-1,Math.min(1,(field.y+field.h*.20)-enemy.y))*Math.min(170*dt,Math.abs((field.y+field.h*.20)-enemy.y));
+   if(puck.y<field.y+field.h*.56){
+     enemy.y += Math.max(-1,Math.min(1,puck.y-enemy.y))*Math.min(240*dt,Math.abs(puck.y-enemy.y));
+   }
+   clampPlayer(enemy,field.y,field.y+field.h/2);
+   collide(player);collide(enemy);
+ }
+ draw();requestAnimationFrame(update);
+}
+function collide(p){
+ let dx=puck.x-p.x,dy=puck.y-p.y,d=Math.hypot(dx,dy),min=p.r+puck.r;
+ if(d<min){
+   if(!d)d=.01;let nx=dx/d,ny=dy/d;
+   puck.x=p.x+nx*(min+.5);puck.y=p.y+ny*(min+.5);
+   const speed=Math.max(430,Math.hypot(puck.vx,puck.vy)*1.04);
+   puck.vx=nx*speed;puck.vy=ny*speed;
+ }
+}
+function end(){over=true;restart.style.display="block"}
+function pointer(e){
+ const r=c.getBoundingClientRect();let x=e.clientX-r.left,y=e.clientY-r.top;
+ movePlayer(x,y);
+}
+c.addEventListener("pointerdown",e=>{drag=true;c.setPointerCapture(e.pointerId);pointer(e)});
+c.addEventListener("pointermove",e=>{if(drag)pointer(e)});
+c.addEventListener("pointerup",()=>drag=false);
+c.addEventListener("pointercancel",()=>drag=false);
+restart.onclick=resetGame;
+addEventListener("resize",resize);
+resize();requestAnimationFrame(update);
+</script>
+</body>
+</html>
