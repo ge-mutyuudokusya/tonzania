@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>トンザニアゲーム作品</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        "Noto Sans JP",
+        sans-serif;
+
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(120, 90, 255, 0.15), transparent 35%),
+        radial-gradient(circle at 80% 80%, rgba(0, 200, 255, 0.12), transparent 35%),
+        #090a0f;
+
+      color: #fff;
+    }
+
+    /* ヘッダー */
+    header {
+      width: 100%;
+      padding: 22px 6%;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+
+      background: rgba(9, 10, 15, 0.75);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .header-inner {
+      max-width: 1200px;
+      margin: auto;
+
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      font-size: clamp(20px, 3vw, 30px);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .logo span {
+      opacity: 0.45;
+      font-weight: 400;
+    }
+
+    /* メイン */
+    main {
+      width: min(1100px, 90%);
+      margin: auto;
+      padding: 100px 0;
+    }
+
+    .hero {
+      text-align: center;
+      margin-bottom: 70px;
+    }
+
+    .hero-label {
+      display: inline-block;
+      margin-bottom: 20px;
+      padding: 7px 16px;
+
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 100px;
+
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 13px;
+      letter-spacing: 0.15em;
+    }
+
+    .hero h1 {
+      font-size: clamp(38px, 7vw, 76px);
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+      margin-bottom: 25px;
+    }
+
+    .hero p {
+      color: rgba(255, 255, 255, 0.55);
+      font-size: 15px;
+      line-height: 1.8;
+    }
+
+    /* URL一覧 */
+    .link-grid {
+      display: grid;
+
+      /* PCでは横並び */
+      grid-template-columns: repeat(3, 1fr);
+
+      gap: 18px;
+    }
+
+    .link-card {
+      position: relative;
+      overflow: hidden;
+
+      padding: 28px;
+
+      min-height: 150px;
+
+      text-decoration: none;
+      color: #fff;
+
+      background: rgba(255, 255, 255, 0.055);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+
+      transition:
+        transform 0.3s ease,
+        background 0.3s ease,
+        border-color 0.3s ease;
+    }
+
+    .link-card::before {
+      content: "";
+
+      position: absolute;
+      width: 180px;
+      height: 180px;
+
+      top: -100px;
+      right: -80px;
+
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 50%;
+
+      transition: transform 0.4s ease;
+    }
+
+    .link-card:hover {
+      transform: translateY(-6px);
+      background: rgba(255, 255, 255, 0.09);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .link-card:hover::before {
+      transform: scale(1.4);
+    }
+
+    .number {
+      display: block;
+      margin-bottom: 25px;
+
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.35);
+      letter-spacing: 0.15em;
+    }
+
+    .link-title {
+      display: block;
+      position: relative;
+      z-index: 2;
+
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .link-url {
+      display: block;
+      position: relative;
+      z-index: 2;
+
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 12px;
+
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .arrow {
+      position: absolute;
+      right: 25px;
+      bottom: 24px;
+
+      font-size: 20px;
+      opacity: 0.45;
+
+      transition: transform 0.3s ease;
+    }
+
+    .link-card:hover .arrow {
+      transform: translate(4px, -4px);
+    }
+
+    /* フッター */
+    footer {
+      text-align: center;
+      padding: 50px 20px;
+
+      color: rgba(255, 255, 255, 0.3);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+    }
+
+    /* スマホ */
+    @media (max-width: 750px) {
+
+      header {
+        padding: 18px 5%;
+      }
+
+      main {
+        width: 90%;
+        padding: 70px 0;
+      }
+
+      .hero {
+        margin-bottom: 45px;
+      }
+
+      .hero h1 {
+        font-size: 42px;
+      }
+
+      .link-grid {
+        /* スマホでは1列 */
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+
+      .link-card {
+        min-height: 130px;
+        padding: 24px;
+      }
+
+      .logo {
+        font-size: 21px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ヘッダー -->
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        トンザニアゲーム作品
+      </div>
+    </div>
+  </header>
+
+
+  <!-- メイン -->
+  <main>
+
+    <section class="hero">
+      <div class="hero-label">GAME WORKS</div>
+
+      <h1>
+        トンザニア<br>
+        ゲーム作品
+      </h1>
+
+      <p>
+        トンザニアゲーム作品に関する<br>
+        各種ページ・コンテンツへのリンク
+      </p>
+    </section>
+
+
+    <!-- URL一覧 -->
+    <section class="link-grid">
+
+      <!-- URL 01 -->
+      <a
+        class="link-card"
+        href="https://example.com"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <span class="number">01</span>
+        <span class="link-title">未入力</span>
+        <span class="link-url">https://example.com</span>
+        <span class="arrow">↗</span>
+      </a>
+
+
+      <!-- URL 02 -->
+      <a
+        class="link-card"
+        href="https://example.com"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <span class="number">02</span>
+        <span class="link-title">未入力</span>
+        <span class="link-url">https://example.com</span>
+        <span class="arrow">↗</span>
+      </a>
+
+
+      <!-- URL 03 -->
+      <a
+        class="link-card"
+        href="https://example.com"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <span class="number">03</span>
+        <span class="link-title">未入力</span>
+        <span class="link-url">https://example.com</span>
+        <span class="arrow">↗</span>
+      </a>
+
+
+      <!-- URL 04 -->
+      <a
+        class="link-card"
+        href="https://example.com"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <span class="number">04</span>
+        <span class="link-title">未入力</span>
+        <span class="link-url">https://example.com</span>
+        <span class="arrow">↗</span>
+      </a>
+
+
+      <!-- URL 05 -->
+      <a
+        class="link-card"
+        href="https://example.com"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <span class="number">05</span>
+        <span class="link-title">未入力</span>
+        <span class="link-url">https://example.com</span>
+        <span class="arrow">↗</span>
+      </a>
+
+
+      <!-- URL 06 -->
+      <a
+        class="link-card"
+        href="https://example.com"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <span class="number">06</span>
+        <span class="link-title">未入力</span>
+        <span class="link-url">https://example.com</span>
+        <span class="arrow">↗</span>
+      </a>
+
+    </section>
+
+  </main>
+
+
+</body>
+</html>
