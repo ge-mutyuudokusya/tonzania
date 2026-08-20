@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>リアルなお金をかせいで家をつくるゲーム</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:"Yu Gothic",system-ui,sans-serif;background:#8fc8e8}
+#game{position:relative;width:100vw;height:100vh;overflow:hidden;background:
+linear-gradient(#7fc7ef 0 56%,#7cb85b 56% 100%)}
+.sun{position:absolute;right:7%;top:7%;width:70px;height:70px;border-radius:50%;background:#ffd85b;box-shadow:0 0 35px #fff0a0}
+.cloud{position:absolute;background:#fff;border-radius:50px;opacity:.85}
+.c1{width:120px;height:35px;left:34%;top:11%}.c2{width:90px;height:28px;left:52%;top:19%}
+.road{position:absolute;left:0;bottom:0;width:100%;height:31%;background:#696969;border-top:8px solid #aaa}
+.road:after{content:"";position:absolute;left:0;top:52%;width:100%;height:7px;background:repeating-linear-gradient(90deg,#eee 0 55px,transparent 55px 100px)}
+.grassStrip{position:absolute;bottom:31%;left:0;width:100%;height:11%;background:#65a94c}
+
+#hud{position:absolute;z-index:20;top:12px;left:12px;width:310px;background:rgba(25,31,36,.92);color:#fff;border-radius:14px;padding:13px;box-shadow:0 5px 20px #0005}
+#hud h1{font-size:18px;margin:0 0 8px}
+.row{display:flex;justify-content:space-between;gap:8px;margin:4px 0;font-size:14px}
+.big{font-size:24px;font-weight:800;color:#f4d35e}
+.barbg{height:12px;background:#555;border-radius:8px;overflow:hidden;margin:3px 0 8px}
+.bar{height:100%;background:#69d46f;width:100%}
+#buttons{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+button{border:0;border-radius:9px;padding:9px 5px;font-weight:800;cursor:pointer}
+button:hover{filter:brightness(1.08)}
+.workbtn{background:#f0c14b}.buybtn{background:#76c7ff}.restbtn{background:#9be27c}.savebtn{background:#ddd}
+#msg{margin-top:8px;min-height:34px;font-size:13px;color:#f4f4f4}
+
+.building{position:absolute;bottom:42%;border:6px solid #555;box-shadow:0 8px 14px #0003}
+#factory{left:5%;width:220px;height:155px;background:#b6bcc2}
+#factory .roofline{height:28px;background:#70777d}
+#factory .door{position:absolute;bottom:0;left:30px;width:55px;height:80px;background:#4d5963}
+#factory .sign{position:absolute;top:40px;right:18px;font-weight:bold;font-size:20px}
+#shop{left:31%;width:190px;height:140px;background:#e8d29b}
+#shop .awning{height:28px;background:repeating-linear-gradient(90deg,#cc3f3f 0 25px,#fff 25px 50px)}
+#shop .shopdoor{position:absolute;bottom:0;left:70px;width:48px;height:75px;background:#6a4d32}
+#shop .sign{position:absolute;top:42px;width:100%;text-align:center;font-size:19px;font-weight:bold}
+
+#plot{position:absolute;right:4%;bottom:40%;width:360px;height:245px;background:#8e754d;border:5px solid #675338;box-shadow:0 10px 20px #0003}
+#plot:after{content:"あなたの土地";position:absolute;bottom:-30px;left:110px;background:#fff8;padding:4px 10px;border-radius:8px;font-weight:bold}
+.foundation{position:absolute;left:55px;bottom:18px;width:250px;height:22px;background:#777}
+.houseWall{display:none;position:absolute;left:68px;bottom:40px;width:225px;height:130px;background:linear-gradient(90deg,#c99156,#e0ad70);border:4px solid #74502e}
+.houseRoof{display:none;position:absolute;left:45px;bottom:164px;width:0;height:0;border-left:135px solid transparent;border-right:135px solid transparent;border-bottom:92px solid #9f3f35;filter:drop-shadow(0 5px 3px #0003)}
+.houseDoor{display:none;position:absolute;left:157px;bottom:40px;width:48px;height:82px;background:#654321;border:3px solid #3e2a16}
+.houseWindow{display:none;position:absolute;left:91px;bottom:100px;width:50px;height:45px;background:#bfe8ff;border:5px solid #f8f3df;box-shadow:inset 0 0 0 2px #78a9c5}
+.chimney{display:none;position:absolute;left:238px;bottom:190px;width:32px;height:66px;background:#6d4c41}
+
+#player{position:absolute;z-index:12;left:48%;bottom:18%;width:34px;height:66px;transition:left .05s linear,bottom .05s linear}
+.head{position:absolute;left:5px;top:0;width:26px;height:26px;background:#efc39d;border-radius:50%;border:2px solid #604633}
+.hair{position:absolute;left:4px;top:-2px;width:28px;height:11px;background:#33271f;border-radius:50% 50% 30% 30%}
+.body{position:absolute;left:4px;top:25px;width:28px;height:26px;background:#315d97;border-radius:5px}
+.leg1,.leg2{position:absolute;top:48px;width:9px;height:18px;background:#26384f}.leg1{left:7px}.leg2{right:6px}
+
+.floatTip{position:absolute;z-index:10;background:#fffddc;border:2px solid #555;border-radius:10px;padding:5px 8px;font-size:12px;font-weight:bold}
+#factoryTip{left:9%;bottom:58%}#shopTip{left:34%;bottom:56%}#plotTip{right:12%;bottom:64%}
+
+#win{display:none;position:absolute;inset:0;z-index:100;background:#0009;align-items:center;justify-content:center}
+#winBox{background:#fff;border-radius:22px;padding:28px;width:min(420px,90vw);text-align:center;box-shadow:0 15px 50px #0008}
+#winBox h2{font-size:28px;margin-top:0}
+#winBox button{font-size:17px;background:#f0c14b;padding:12px 22px}
+
+#help{position:absolute;right:12px;top:12px;z-index:20;background:#fffddd;padding:10px 13px;border-radius:12px;font-size:13px;box-shadow:0 4px 14px #0003}
+@media(max-width:900px){#plot{right:2%;transform:scale(.82);transform-origin:right bottom}#shop{left:36%;transform:scale(.85);transform-origin:left bottom}#factory{transform:scale(.82);transform-origin:left bottom}#help{display:none}}
+</style>
+</head>
+<body>
+<div id="game">
+  <div class="sun"></div><div class="cloud c1"></div><div class="cloud c2"></div>
+  <div class="grassStrip"></div><div class="road"></div>
+
+  <div id="hud">
+    <h1>🏠 リアル家づくり生活</h1>
+    <div class="row"><span>所持金</span><span class="big" id="money">1,000円</span></div>
+    <div class="row"><span>日付</span><span id="day">1日目 08:00</span></div>
+    <div class="row"><span>体力</span><span id="energyText">100 / 100</span></div>
+    <div class="barbg"><div class="bar" id="energyBar"></div></div>
+    <div class="row"><span>材料</span><span id="materials">木材 0 / コンクリ 0</span></div>
+    <div class="row"><span>家の完成度</span><span id="progressText">0%</span></div>
+    <div class="barbg"><div class="bar" id="progressBar" style="width:0%"></div></div>
+    <div id="buttons">
+      <button class="workbtn" onclick="work('delivery')">📦 荷物の仕分け<br>3時間 / 1,350円</button>
+      <button class="workbtn" onclick="work('construction')">👷 建設現場<br>4時間 / 2,400円</button>
+      <button class="workbtn" onclick="work('cleaning')">🧹 清掃の仕事<br>2時間 / 850円</button>
+      <button class="workbtn" onclick="work('carpentry')">🪚 大工の手伝い<br>5時間 / 3,100円</button>
+      <button class="buybtn" onclick="buyWood()">木材を買う<br>600円</button>
+      <button class="buybtn" onclick="buyConcrete()">コンクリ購入<br>800円</button>
+      <button class="restbtn" onclick="rest()">休む</button>
+      <button class="buybtn" onclick="build()">家を建てる</button>
+    </div>
+    <div id="workStatus" style="display:none;margin-top:8px">
+      <div class="row"><span id="workName">仕事中</span><span id="workTimer">0秒</span></div>
+      <div class="barbg"><div class="bar" id="workBar" style="width:0%"></div></div>
+    </div>
+    <div id="msg">仕事を選ぼう！仕事ごとに給料・時間・使う体力が違います。</div>
+  </div>
+
+  <div id="help">移動：WASD / 矢印キー<br>仕事には体力が必要です</div>
+
+  <div id="factory" class="building">
+    <div class="roofline"></div><div class="door"></div><div class="sign">🏢 求人センター</div>
+  </div>
+  <div id="shop" class="building">
+    <div class="awning"></div><div class="shopdoor"></div><div class="sign">🧱 建材店</div>
+  </div>
+
+  <div id="plot">
+    <div class="foundation"></div>
+    <div class="chimney" id="chimney"></div>
+    <div class="houseRoof" id="roof"></div>
+    <div class="houseWall" id="wall"></div>
+    <div class="houseWindow" id="window"></div>
+    <div class="houseDoor" id="door"></div>
+  </div>
+
+  <div class="floatTip" id="factoryTip">ここで仕事をえらぶ</div>
+  <div class="floatTip" id="shopTip">材料を買う</div>
+  <div class="floatTip" id="plotTip">ここに家を建てる</div>
+
+  <div id="player"><div class="hair"></div><div class="head"></div><div class="body"></div><div class="leg1"></div><div class="leg2"></div></div>
+
+  <div id="win"><div id="winBox">
+    <h2>🎉 マイホーム完成！</h2>
+    <p>仕事をしてお金をため、材料を買い、自分の家を完成させました！</p>
+    <p id="result"></p>
+    <button onclick="location.reload()">もう一度あそぶ</button>
+  </div></div>
+</div>
+
+<script>
+let money=1000, energy=100, wood=0, concrete=0, stage=0;
+let minutes=8*60, day=1;
+const player=document.getElementById('player');
+let x=48, y=18;
+const keys={};
+
+function fmtTime(){
+  let h=Math.floor(minutes/60), m=minutes%60;
+  return `${day}日目 ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+function update(){
+  document.getElementById('money').textContent=money.toLocaleString()+'円';
+  document.getElementById('energyText').textContent=`${energy} / 100`;
+  document.getElementById('energyBar').style.width=energy+'%';
+  document.getElementById('materials').textContent=`木材 ${wood} / コンクリ ${concrete}`;
+  document.getElementById('day').textContent=fmtTime();
+  let p=stage*25;
+  document.getElementById('progressText').textContent=p+'%';
+  document.getElementById('progressBar').style.width=p+'%';
+}
+function say(t){document.getElementById('msg').textContent=t}
+function passTime(min){
+  minutes+=min;
+  while(minutes>=24*60){minutes-=24*60;day++}
+  update();
+}
+let working=false;
+let workInterval=null;
+
+function setWorkButtons(disabled){
+  document.querySelectorAll('.workbtn').forEach(b=>b.disabled=disabled);
+}
+
+function work(type){
+  if(working){
+    say('いま仕事中です。終わるまで待ってください。');
+    return;
+  }
+
+  const jobs={
+    delivery:{
+      name:'荷物の仕分け', pay:1350, cost:22, gameTime:180, realSeconds:30,
+      text:'📦 倉庫でトラックから箱をおろし、行き先ごとに荷物を仕分けました。'
+    },
+    construction:{
+      name:'建設現場', pay:2400, cost:42, gameTime:240, realSeconds:30,
+      text:'👷 ヘルメットをかぶり、資材運びと現場の片づけをしました。'
+    },
+    cleaning:{
+      name:'清掃', pay:850, cost:12, gameTime:120, realSeconds:30,
+      text:'🧹 店の床を掃除して、ゴミ回収と窓ふきをしました。'
+    },
+    carpentry:{
+      name:'大工の手伝い', pay:3100, cost:55, gameTime:300, realSeconds:30,
+      text:'🪚 木材を運び、寸法を測り、職人さんの組み立てを手伝いました。'
+    }
+  };
+
+  const j=jobs[type];
+  if(!j)return;
+
+  if(energy<j.cost){
+    say(`${j.name}には体力が${j.cost}必要です。休んで回復しよう。`);
+    return;
+  }
+
+  working=true;
+  setWorkButtons(true);
+
+  const status=document.getElementById('workStatus');
+  const name=document.getElementById('workName');
+  const timer=document.getElementById('workTimer');
+  const bar=document.getElementById('workBar');
+
+  status.style.display='block';
+  name.textContent='仕事中：'+j.name;
+
+  let elapsed=0;
+  timer.textContent=`残り ${j.realSeconds}秒`;
+  bar.style.width='0%';
+  say(`${j.name}を始めました。給料は仕事が終わってから入ります。`);
+
+  workInterval=setInterval(()=>{
+    elapsed++;
+    const remain=Math.max(0,j.realSeconds-elapsed);
+    timer.textContent=`残り ${remain}秒`;
+    bar.style.width=Math.min(100,(elapsed/j.realSeconds)*100)+'%';
+
+    if(elapsed>=j.realSeconds){
+      clearInterval(workInterval);
+      working=false;
+      setWorkButtons(false);
+
+      money+=j.pay;
+      energy-=j.cost;
+      passTime(j.gameTime);
+      status.style.display='none';
+
+      say(`${j.text} 仕事完了！ 給料 ${j.pay.toLocaleString()}円を受け取りました。`);
+      update();
+    }
+  },1000);
+}
+function buyWood(){
+  if(working){say('仕事中はほかの行動はできません。');return;}
+  if(money<600){say('木材を買うお金が足りません。');return}
+  money-=600;wood++;passTime(20);say('木材を1個買いました。');update();
+}
+function buyConcrete(){
+  if(working){say('仕事中はほかの行動はできません。');return;}
+  if(money<800){say('コンクリートを買うお金が足りません。');return}
+  money-=800;concrete++;passTime(20);say('コンクリートを1個買いました。');update();
+}
+function rest(){
+  if(working){say('仕事中はほかの行動はできません。');return;}
+  energy=Math.min(100,energy+55);
+  passTime(480);
+  say('8時間休んで体力が回復しました。');
+  update();
+}
+function build(){
+  if(working){say('仕事中はほかの行動はできません。');return;}
+  if(stage===0){
+    if(concrete<2){say('基礎工事にはコンクリートが2個必要です。');return}
+    concrete-=2; stage=1; energy=Math.max(0,energy-15); passTime(180);
+    document.querySelector('.foundation').style.height='28px';
+    say('基礎工事が完成！次は壁です。');
+  }else if(stage===1){
+    if(wood<3){say('壁には木材が3個必要です。');return}
+    wood-=3; stage=2; energy=Math.max(0,energy-20); passTime(240);
+    document.getElementById('wall').style.display='block';
+    document.getElementById('door').style.display='block';
+    say('壁と玄関ができました！');
+  }else if(stage===2){
+    if(wood<2){say('屋根には木材が2個必要です。');return}
+    wood-=2; stage=3; energy=Math.max(0,energy-20); passTime(240);
+    document.getElementById('roof').style.display='block';
+    document.getElementById('chimney').style.display='block';
+    say('屋根ができました！あと少し。');
+  }else if(stage===3){
+    if(money<1500 || wood<1){say('仕上げには1,500円と木材1個が必要です。');return}
+    money-=1500; wood-=1; stage=4; energy=Math.max(0,energy-15); passTime(180);
+    document.getElementById('window').style.display='block';
+    say('家が完成しました！');
+    update();
+    setTimeout(()=>{
+      document.getElementById('result').textContent=`完成まで ${day}日、残金 ${money.toLocaleString()}円`;
+      document.getElementById('win').style.display='flex';
+    },500);
+  }else say('家はもう完成しています！');
+  update();
+}
+
+addEventListener('keydown',e=>keys[e.key.toLowerCase()]=true);
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+function loop(){
+  const sp=0.18;
+  if(keys['arrowleft']||keys['a'])x-=sp;
+  if(keys['arrowright']||keys['d'])x+=sp;
+  if(keys['arrowup']||keys['w'])y+=sp;
+  if(keys['arrowdown']||keys['s'])y-=sp;
+  x=Math.max(1,Math.min(96,x)); y=Math.max(2,Math.min(38,y));
+  player.style.left=x+'%'; player.style.bottom=y+'%';
+  requestAnimationFrame(loop);
+}
+update();loop();
+</script>
+</body>
+</html>

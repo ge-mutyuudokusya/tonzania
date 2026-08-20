@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ミニ・バトロワ</title>
+<style>
+  body{
+    margin:0;
+    background:#111;
+    color:#fff;
+    font-family:Arial, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    text-align:center;
+  }
+  h1{margin:12px 0 4px}
+  p{margin:4px 0 10px}
+  canvas{
+    background:#283b2b;
+    border:4px solid #fff;
+    border-radius:12px;
+    max-width:96vw;
+    box-shadow:0 0 30px rgba(0,0,0,.5);
+  }
+  button{
+    margin:10px;
+    padding:10px 18px;
+    font-size:18px;
+    border:0;
+    border-radius:10px;
+    cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<h1>🔥 ミニ・バトロワ 🔥</h1>
+<p>WASD / 矢印キーで移動　｜　マウスでねらう　｜　クリックで射撃</p>
+<canvas id="game" width="1400" height="850"></canvas><br>
+<button onclick="resetGame()">もういちど</button>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let keys = {};
+let mouse = {x:canvas.width/2,y:canvas.height/2,down:false};
+let bullets = [];
+let enemies = [];
+let particles = [];
+let kills = 0;
+let gameOver = false;
+let win = false;
+let lastShot = 0;
+let zoneRadius = 650;
+let zoneTarget = 650;
+let zoneTimer = 0;
+
+const player = {
+  x: canvas.width/2,
+  y: canvas.height/2,
+  r: 16,
+  speed: 3.7,
+  hp: 100,
+  angle: 0
+};
+
+function rand(min,max){ return Math.random()*(max-min)+min; }
+
+function spawnEnemy(){
+  let x,y;
+  do{
+    x = rand(30,canvas.width-30);
+    y = rand(30,canvas.height-30);
+  }while(Math.hypot(x-player.x,y-player.y)<180);
+
+  enemies.push({
+    id: Math.random().toString(36).slice(2),
+    x,y,
+    r:15,
+    hp:50,
+    speed:rand(1.6,2.4),
+    angle:0,
+    shootCooldown:rand(420,850),
+    lastShot:performance.now()
+  });
+}
+
+function resetGame(){
+  player.x=canvas.width/2;
+  player.y=canvas.height/2;
+  player.hp=100;
+  bullets=[];
+  enemies=[];
+  particles=[];
+  kills=0;
+  gameOver=false;
+  win=false;
+  zoneRadius=650;
+  zoneTarget=650;
+  zoneTimer=0;
+  for(let i=0;i<18;i++) spawnEnemy();
+}
+
+window.addEventListener("keydown",e=>{
+  keys[e.key.toLowerCase()]=true;
+});
+window.addEventListener("keyup",e=>{
+  keys[e.key.toLowerCase()]=false;
+});
+
+canvas.addEventListener("mousemove",e=>{
+  const rect=canvas.getBoundingClientRect();
+  mouse.x=(e.clientX-rect.left)*canvas.width/rect.width;
+  mouse.y=(e.clientY-rect.top)*canvas.height/rect.height;
+});
+canvas.addEventListener("mousedown",()=>mouse.down=true);
+window.addEventListener("mouseup",()=>mouse.down=false);
+
+function shoot(fromX,fromY,angle,speed,owner){
+  bullets.push({
+    x:fromX,
+    y:fromY,
+    vx:Math.cos(angle)*speed,
+    vy:Math.sin(angle)*speed,
+    r:4,
+    owner,
+    life:100
+  });
+}
+
+function hitParticles(x,y,count=8){
+  for(let i=0;i<count;i++){
+    particles.push({
+      x,y,
+      vx:rand(-2.5,2.5),
+      vy:rand(-2.5,2.5),
+      life:rand(15,30)
+    });
+  }
+}
+
+function update(){
+  if(gameOver || win) return;
+
+  let dx=0,dy=0;
+  if(keys["w"]||keys["arrowup"]) dy--;
+  if(keys["s"]||keys["arrowdown"]) dy++;
+  if(keys["a"]||keys["arrowleft"]) dx--;
+  if(keys["d"]||keys["arrowright"]) dx++;
+
+  if(dx||dy){
+    const len=Math.hypot(dx,dy);
+    player.x += dx/len*player.speed;
+    player.y += dy/len*player.speed;
+  }
+
+  player.x=Math.max(player.r,Math.min(canvas.width-player.r,player.x));
+  player.y=Math.max(player.r,Math.min(canvas.height-player.r,player.y));
+
+  player.angle=Math.atan2(mouse.y-player.y,mouse.x-player.x);
+
+  const now=performance.now();
+  if(mouse.down && now-lastShot>230){
+    shoot(
+      player.x+Math.cos(player.angle)*22,
+      player.y+Math.sin(player.angle)*22,
+      player.angle,8,"player"
+    );
+    lastShot=now;
+  }
+
+  // 安全エリア縮小
+  zoneTimer++;
+  if(zoneTimer%260===0 && zoneTarget>110){
+    zoneTarget-=70;
+  }
+  zoneRadius += (zoneTarget-zoneRadius)*0.01;
+
+  const zx=canvas.width/2, zy=canvas.height/2;
+  if(Math.hypot(player.x-zx,player.y-zy)>zoneRadius){
+    player.hp-=0.20;
+  }
+
+  // 敵AI：プレイヤーも他の敵も全員ライバル
+  for(const e of enemies){
+    let target = player;
+    let nearest = Math.hypot(player.x-e.x, player.y-e.y);
+
+    for(const other of enemies){
+      if(other === e || other.hp <= 0) continue;
+      const od = Math.hypot(other.x-e.x, other.y-e.y);
+      if(od < nearest){
+        nearest = od;
+        target = other;
+      }
+    }
+
+    const ang=Math.atan2(target.y-e.y,target.x-e.x);
+    e.angle=ang;
+    const d=nearest;
+
+    if(d>135){
+      e.x+=Math.cos(ang)*e.speed;
+      e.y+=Math.sin(ang)*e.speed;
+    }else{
+      e.x-=Math.cos(ang)*e.speed*0.3;
+      e.y-=Math.sin(ang)*e.speed*0.3;
+    }
+
+    if(now-e.lastShot>e.shootCooldown && d<450){
+      shoot(
+        e.x+Math.cos(ang)*20,
+        e.y+Math.sin(ang)*20,
+        ang,5.4,
+        target === player ? "enemyToPlayer" : "enemyToEnemy:" + e.id
+      );
+      e.lastShot=now;
+      e.shootCooldown=rand(420,850);
+    }
+
+    if(Math.hypot(e.x-zx,e.y-zy)>zoneRadius){
+      e.hp-=0.12;
+    }
+  }
+
+  // 弾
+  for(const b of bullets){
+    b.x+=b.vx;
+    b.y+=b.vy;
+    b.life--;
+
+    if(b.owner==="player"){
+      for(const e of enemies){
+        if(e.hp>0 && Math.hypot(b.x-e.x,b.y-e.y)<b.r+e.r){
+          e.hp-=20;
+          b.life=0;
+          hitParticles(e.x,e.y);
+          break;
+        }
+      }
+    }else if(b.owner==="enemyToPlayer"){
+      if(Math.hypot(b.x-player.x,b.y-player.y)<b.r+player.r){
+        player.hp-=14;
+        b.life=0;
+        hitParticles(player.x,player.y);
+      }
+    }else if(b.owner.startsWith("enemyToEnemy:")){
+      const shooterId=b.owner.split(":")[1];
+      for(const e of enemies){
+        if(e.id===shooterId || e.hp<=0) continue;
+        if(Math.hypot(b.x-e.x,b.y-e.y)<b.r+e.r){
+          e.hp-=10;
+          b.life=0;
+          hitParticles(e.x,e.y);
+          break;
+        }
+      }
+      if(b.life>0 && Math.hypot(b.x-player.x,b.y-player.y)<b.r+player.r){
+        player.hp-=14;
+        b.life=0;
+        hitParticles(player.x,player.y);
+      }
+    }
+  }
+
+  bullets=bullets.filter(b=>
+    b.life>0 &&
+    b.x>-20 && b.x<canvas.width+20 &&
+    b.y>-20 && b.y<canvas.height+20
+  );
+
+  const before=enemies.length;
+  enemies=enemies.filter(e=>e.hp>0);
+  kills += before-enemies.length;
+
+  if(enemies.length===0 && player.hp>0){
+    win=true;
+  }
+
+  if(player.hp<=0){
+    player.hp=0;
+    gameOver=true;
+  }
+
+  for(const p of particles){
+    p.x+=p.vx; p.y+=p.vy; p.life--;
+  }
+  particles=particles.filter(p=>p.life>0);
+}
+
+function drawGrid(){
+  ctx.strokeStyle="rgba(255,255,255,.05)";
+  ctx.lineWidth=1;
+  for(let x=0;x<canvas.width;x+=40){
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,canvas.height);ctx.stroke();
+  }
+  for(let y=0;y<canvas.height;y+=40){
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canvas.width,y);ctx.stroke();
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="#2a462f";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  drawGrid();
+
+  // 危険エリア
+  const zx=canvas.width/2, zy=canvas.height/2;
+  ctx.save();
+  ctx.fillStyle="rgba(120,0,160,.28)";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.globalCompositeOperation="destination-out";
+  ctx.beginPath();
+  ctx.arc(zx,zy,zoneRadius,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle="#67d5ff";
+  ctx.lineWidth=4;
+  ctx.beginPath();
+  ctx.arc(zx,zy,zoneRadius,0,Math.PI*2);
+  ctx.stroke();
+
+  // 弾
+  for(const b of bullets){
+    ctx.fillStyle=b.owner==="player" ? "#ffe45c" : "#ff8a5c";
+    ctx.beginPath();
+    ctx.arc(b.x,b.y,b.r,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  // 敵
+  for(const e of enemies){
+    ctx.save();
+    ctx.translate(e.x,e.y);
+    ctx.rotate(e.angle);
+    ctx.fillStyle="#ef3f3f";
+    ctx.beginPath();
+    ctx.arc(0,0,e.r,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle="#222";
+    ctx.fillRect(8,-4,18,8);
+    ctx.restore();
+
+    ctx.fillStyle="#333";
+    ctx.fillRect(e.x-17,e.y-25,34,5);
+    ctx.fillStyle="#61e36f";
+    ctx.fillRect(e.x-17,e.y-25,34*(e.hp/50),5);
+  }
+
+  // プレイヤー
+  ctx.save();
+  ctx.translate(player.x,player.y);
+  ctx.rotate(player.angle);
+  ctx.fillStyle="#4bb7ff";
+  ctx.beginPath();
+  ctx.arc(0,0,player.r,0,Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle="#ddd";
+  ctx.fillRect(8,-5,24,10);
+  ctx.restore();
+
+  // パーティクル
+  ctx.fillStyle="#fff";
+  for(const p of particles){
+    ctx.globalAlpha=Math.max(0,p.life/30);
+    ctx.fillRect(p.x,p.y,3,3);
+  }
+  ctx.globalAlpha=1;
+
+  // HUD
+  ctx.fillStyle="rgba(0,0,0,.5)";
+  ctx.fillRect(12,12,240,84);
+  ctx.fillStyle="#fff";
+  ctx.font="bold 22px Arial";
+  ctx.fillText("HP: "+Math.ceil(player.hp),24,40);
+  ctx.fillText("あなたのキル: "+kills,24,68);
+  ctx.fillText("のこり: "+(enemies.length+1)+"人",24,94);
+
+  // HPバー
+  ctx.fillStyle="#333";
+  ctx.fillRect(280,18,260,20);
+  ctx.fillStyle=player.hp>35 ? "#58db70" : "#ff4b4b";
+  ctx.fillRect(280,18,260*(player.hp/100),20);
+  ctx.strokeStyle="#fff";
+  ctx.strokeRect(280,18,260,20);
+
+  if(gameOver || win){
+    ctx.fillStyle="rgba(0,0,0,.72)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.textAlign="center";
+    ctx.fillStyle="#fff";
+    ctx.font="bold 56px Arial";
+    ctx.fillText(win ? "🏆 ビクロイ！" : "ゲームオーバー",canvas.width/2,canvas.height/2-25);
+    ctx.font="28px Arial";
+    ctx.fillText("たおした数: "+kills,canvas.width/2,canvas.height/2+30);
+    ctx.font="20px Arial";
+    ctx.fillText("下の「もういちど」で再スタート",canvas.width/2,canvas.height/2+70);
+    ctx.textAlign="left";
+  }
+}
+
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+resetGame();
+loop();
+</script>
+</body>
+</html>

@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ハード・ブロックブレイカー</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(circle at top, #23395d 0%, #0b1220 55%, #05070c 100%);
+    color: white;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+  .wrap { text-align: center; }
+  h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: 1px; }
+  .hud {
+    width: 900px; max-width: 96vw;
+    display: flex; justify-content: space-between; gap: 10px;
+    margin: 0 auto 8px; font-weight: 700; font-size: 18px;
+  }
+  canvas {
+    width: 900px; max-width: 96vw; height: auto;
+    background: linear-gradient(#0a1020,#101a31);
+    border: 3px solid rgba(255,255,255,.25);
+    border-radius: 14px;
+    box-shadow: 0 18px 60px rgba(0,0,0,.45);
+  }
+  .help {
+    margin-top: 8px; opacity: .85; font-size: 14px;
+  }
+  kbd {
+    background:#202a3c; padding:2px 7px; border-radius:5px;
+    border:1px solid #41506b;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔥 ハード・ブロックブレイカー</h1>
+  <div class="hud">
+    <div id="score">スコア: 0</div>
+    <div id="level">レベル: 1</div>
+    <div id="lives">❤️ 3</div>
+  </div>
+  <canvas id="game" width="900" height="600"></canvas>
+  <div class="help">
+    <kbd>←</kbd><kbd>→</kbd> または <kbd>A</kbd><kbd>D</kbd> で移動　
+    <kbd>SPACE</kbd> でスタート　<kbd>R</kbd> でやり直し
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const scoreEl = document.getElementById("score");
+const levelEl = document.getElementById("level");
+const livesEl = document.getElementById("lives");
+
+let score = 0, level = 1, lives = 3;
+let running = false, gameOver = false, winPause = false;
+let keys = {};
+
+const paddle = { x: 370, y: 560, w: 160, h: 16, speed: 9 };
+const ball = { x: 450, y: 535, r: 9, vx: 4.6, vy: -4.6, baseSpeed: 6.5 };
+let bricks = [];
+let particles = [];
+
+function makeLevel() {
+  bricks = [];
+  const rows = Math.min(5 + level, 9);
+  const cols = 10;
+  const gap = 8;
+  const marginX = 35;
+  const bw = (canvas.width - marginX*2 - gap*(cols-1)) / cols;
+  const bh = 28;
+
+  for (let r=0; r<rows; r++) {
+    for (let c=0; c<cols; c++) {
+      let hp = 1;
+      if (level >= 2 && (r+c)%4===0) hp = 2;
+      if (level >= 4 && (r*2+c)%7===0) hp = 3;
+      bricks.push({
+        x: marginX + c*(bw+gap),
+        y: 70 + r*(bh+gap),
+        w: bw, h: bh,
+        hp, maxHp: hp, alive: true
+      });
+    }
+  }
+}
+
+function resetBall() {
+  running = false;
+  ball.x = paddle.x + paddle.w/2;
+  ball.y = paddle.y - 20;
+  const speed = Math.min(ball.baseSpeed + (level-1)*0.55, 11);
+  const dir = Math.random() > 0.5 ? 1 : -1;
+  ball.vx = dir * speed * 0.67;
+  ball.vy = -speed * 0.74;
+}
+
+function resetGame() {
+  score = 0; level = 1; lives = 3;
+  gameOver = false; winPause = false;
+  paddle.x = 370; paddle.w = 160;
+  makeLevel(); resetBall(); updateHud();
+}
+
+function updateHud() {
+  scoreEl.textContent = `スコア: ${score}`;
+  levelEl.textContent = `レベル: ${level}`;
+  livesEl.textContent = `❤️ ${lives}`;
+}
+
+function spawnParticles(x,y) {
+  for (let i=0;i<12;i++) {
+    particles.push({
+      x,y,
+      vx:(Math.random()-.5)*6,
+      vy:(Math.random()-.5)*6,
+      life:30+Math.random()*15
+    });
+  }
+}
+
+function circleRectCollision(b, r) {
+  const cx = Math.max(r.x, Math.min(b.x, r.x+r.w));
+  const cy = Math.max(r.y, Math.min(b.y, r.y+r.h));
+  const dx = b.x-cx, dy = b.y-cy;
+  return dx*dx + dy*dy <= b.r*b.r;
+}
+
+function nextLevel() {
+  winPause = true;
+  running = false;
+  setTimeout(() => {
+    level++;
+    paddle.w = Math.max(100, 160-(level-1)*8);
+    makeLevel();
+    resetBall();
+    winPause = false;
+    updateHud();
+  }, 900);
+}
+
+function update() {
+  if (keys["ArrowLeft"] || keys["a"] || keys["A"]) paddle.x -= paddle.speed;
+  if (keys["ArrowRight"] || keys["d"] || keys["D"]) paddle.x += paddle.speed;
+  paddle.x = Math.max(0, Math.min(canvas.width-paddle.w, paddle.x));
+
+  if (!running && !gameOver) {
+    ball.x = paddle.x + paddle.w/2;
+    ball.y = paddle.y - 20;
+  }
+
+  if (running && !gameOver) {
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+
+    if (ball.x-ball.r <= 0 && ball.vx < 0) ball.vx *= -1;
+    if (ball.x+ball.r >= canvas.width && ball.vx > 0) ball.vx *= -1;
+    if (ball.y-ball.r <= 0 && ball.vy < 0) ball.vy *= -1;
+
+    if (circleRectCollision(ball, paddle) && ball.vy > 0) {
+      const hit = (ball.x - (paddle.x+paddle.w/2)) / (paddle.w/2);
+      const speed = Math.min(Math.hypot(ball.vx,ball.vy)*1.018, 12.5);
+      ball.vx = speed * hit * 0.95;
+      ball.vy = -Math.sqrt(Math.max(3, speed*speed - ball.vx*ball.vx));
+      ball.y = paddle.y - ball.r - 1;
+    }
+
+    for (const br of bricks) {
+      if (!br.alive) continue;
+      if (circleRectCollision(ball, br)) {
+        br.hp--;
+        score += 10;
+        spawnParticles(ball.x, ball.y);
+
+        const prevX = ball.x-ball.vx, prevY = ball.y-ball.vy;
+        const fromLeft = prevX < br.x;
+        const fromRight = prevX > br.x+br.w;
+        if (fromLeft || fromRight) ball.vx *= -1;
+        else ball.vy *= -1;
+
+        if (br.hp <= 0) {
+          br.alive = false;
+          score += 40 * br.maxHp;
+        }
+        updateHud();
+        break;
+      }
+    }
+
+    if (ball.y-ball.r > canvas.height) {
+      lives--;
+      updateHud();
+      if (lives <= 0) {
+        gameOver = true;
+        running = false;
+      } else resetBall();
+    }
+
+    if (bricks.every(b=>!b.alive) && !winPause) nextLevel();
+  }
+
+  for (const p of particles) {
+    p.x += p.vx; p.y += p.vy;
+    p.vy += .08;
+    p.life--;
+  }
+  particles = particles.filter(p=>p.life>0);
+}
+
+function drawRoundRect(x,y,w,h,r,fill) {
+  ctx.beginPath();
+  ctx.roundRect(x,y,w,h,r);
+  ctx.fillStyle=fill; ctx.fill();
+}
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  ctx.fillStyle = "rgba(255,255,255,.035)";
+  for (let y=0;y<canvas.height;y+=40) ctx.fillRect(0,y,canvas.width,1);
+
+  for (const br of bricks) {
+    if (!br.alive) continue;
+    let fill = "#44d17a";
+    if (br.hp===2) fill="#ffb23e";
+    if (br.hp>=3) fill="#ff5c6a";
+    drawRoundRect(br.x, br.y, br.w, br.h, 7, fill);
+
+    ctx.fillStyle="rgba(255,255,255,.24)";
+    ctx.fillRect(br.x+4, br.y+4, br.w-8, 4);
+
+    if (br.maxHp>1) {
+      ctx.fillStyle="rgba(0,0,0,.35)";
+      ctx.font="bold 14px sans-serif";
+      ctx.textAlign="center";
+      ctx.fillText(br.hp, br.x+br.w/2, br.y+19);
+    }
+  }
+
+  drawRoundRect(paddle.x, paddle.y, paddle.w, paddle.h, 8, "#f4f7ff");
+  ctx.fillStyle="#8ed7ff";
+  ctx.fillRect(paddle.x+10,paddle.y+4,paddle.w-20,4);
+
+  const grad = ctx.createRadialGradient(ball.x-3,ball.y-3,2,ball.x,ball.y,ball.r);
+  grad.addColorStop(0,"white");
+  grad.addColorStop(1,"#68c7ff");
+  ctx.beginPath();
+  ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);
+  ctx.fillStyle=grad; ctx.fill();
+
+  for (const p of particles) {
+    ctx.globalAlpha=Math.max(0,p.life/40);
+    ctx.fillStyle="#ffd66b";
+    ctx.fillRect(p.x,p.y,4,4);
+  }
+  ctx.globalAlpha=1;
+
+  ctx.textAlign="center";
+  if (!running && !gameOver && !winPause) {
+    ctx.fillStyle="rgba(0,0,0,.48)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="white";
+    ctx.font="bold 34px sans-serif";
+    ctx.fillText("SPACEでスタート！", canvas.width/2, canvas.height/2-10);
+    ctx.font="18px sans-serif";
+    ctx.fillText("赤いブロックほど硬いぞ！", canvas.width/2, canvas.height/2+30);
+  }
+
+  if (winPause) {
+    ctx.fillStyle="rgba(0,0,0,.45)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="#ffe66b";
+    ctx.font="bold 40px sans-serif";
+    ctx.fillText("LEVEL CLEAR!", canvas.width/2, canvas.height/2);
+  }
+
+  if (gameOver) {
+    ctx.fillStyle="rgba(0,0,0,.7)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="#ff6678";
+    ctx.font="bold 46px sans-serif";
+    ctx.fillText("GAME OVER", canvas.width/2, canvas.height/2-30);
+    ctx.fillStyle="white";
+    ctx.font="22px sans-serif";
+    ctx.fillText(`スコア ${score}　Rキーで再挑戦`, canvas.width/2, canvas.height/2+20);
+  }
+}
+
+function loop() {
+  update(); draw(); requestAnimationFrame(loop);
+}
+
+addEventListener("keydown", e=>{
+  keys[e.key]=true;
+  if (["ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+  if (e.code==="Space" && !gameOver && !winPause) running=true;
+  if (e.key==="r" || e.key==="R") resetGame();
+});
+addEventListener("keyup", e=>keys[e.key]=false);
+
+canvas.addEventListener("mousemove", e=>{
+  const rect=canvas.getBoundingClientRect();
+  const sx=canvas.width/rect.width;
+  paddle.x=(e.clientX-rect.left)*sx-paddle.w/2;
+});
+
+makeLevel(); resetBall(); updateHud(); loop();
+</script>
+</body>
+</html>

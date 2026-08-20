@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ブロッククラッシュ！</title>
+<style>
+  html,body{
+    margin:0;
+    width:100%;
+    height:100%;
+    background:#111827;
+    overflow:hidden;
+    font-family:system-ui,-apple-system,"Yu Gothic",sans-serif;
+  }
+  body{display:grid;place-items:center}
+  canvas{
+    width:min(100vw,960px);
+    height:auto;
+    max-height:100vh;
+    background:#87ceeb;
+    image-rendering:auto;
+    touch-action:none;
+    outline:none;
+  }
+  #info{
+    position:fixed;
+    left:50%;
+    bottom:10px;
+    transform:translateX(-50%);
+    color:#fff;
+    background:#0009;
+    padding:8px 12px;
+    border-radius:12px;
+    font-size:14px;
+    white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="540" tabindex="0"></canvas>
+<div id="info">← → / A D：いどう　Space / ↑ / W：ジャンプ　R：やりなおし</div>
+
+<script>
+"use strict";
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const W = canvas.width;
+const H = canvas.height;
+
+const keys = new Set();
+
+window.addEventListener("keydown", (e) => {
+  keys.add(e.code);
+  if (["ArrowLeft","ArrowRight","ArrowUp","Space"].includes(e.code)) {
+    e.preventDefault();
+  }
+  if (e.code === "KeyR") reset();
+}, {passive:false});
+
+window.addEventListener("keyup", (e) => {
+  keys.delete(e.code);
+});
+
+canvas.addEventListener("pointerdown", () => canvas.focus());
+canvas.focus();
+
+const platforms = [
+  {x:0,y:490,w:960,h:50},
+  {x:90,y:395,w:170,h:22},
+  {x:350,y:330,w:180,h:22},
+  {x:610,y:260,w:180,h:22},
+  {x:735,y:410,w:140,h:22},
+  {x:40,y:245,w:145,h:22}
+];
+
+let player;
+let blocks;
+let coins;
+let particles;
+let won;
+
+function reset(){
+  player = {
+    x:40, y:430, w:38, h:48,
+    vx:0, vy:0,
+    onGround:false
+  };
+
+  blocks = [
+    {x:285,y:440,w:52,h:50,alive:true},
+    {x:337,y:440,w:52,h:50,alive:true},
+    {x:389,y:440,w:52,h:50,alive:true},
+    {x:441,y:440,w:52,h:50,alive:true},
+    {x:493,y:440,w:52,h:50,alive:true}
+  ];
+
+  coins = [
+    {x:175,y:355},
+    {x:440,y:290},
+    {x:700,y:220},
+    {x:805,y:370},
+    {x:110,y:205}
+  ];
+
+  particles = [];
+  won = false;
+}
+
+reset();
+
+function rectHit(a,b){
+  return a.x < b.x+b.w &&
+         a.x+a.w > b.x &&
+         a.y < b.y+b.h &&
+         a.y+a.h > b.y;
+}
+
+function burst(x,y){
+  for(let i=0;i<18;i++){
+    particles.push({
+      x,y,
+      vx:(Math.random()-.5)*380,
+      vy:(Math.random()-.8)*380,
+      life:1
+    });
+  }
+}
+
+function update(dt){
+  if(won) return;
+
+  const left  = keys.has("ArrowLeft")  || keys.has("KeyA");
+  const right = keys.has("ArrowRight") || keys.has("KeyD");
+  const jump  = keys.has("Space") || keys.has("ArrowUp") || keys.has("KeyW");
+
+  if(left) player.vx -= 1100*dt;
+  if(right) player.vx += 1100*dt;
+
+  player.vx *= Math.pow(0.0015, dt);
+  player.vx = Math.max(-320, Math.min(320, player.vx));
+
+  if(jump && player.onGround){
+    player.vy = -650;
+    player.onGround = false;
+  }
+
+  player.vy += 1500*dt;
+
+  player.x += player.vx*dt;
+  player.x = Math.max(0, Math.min(W-player.w, player.x));
+
+  const oldY = player.y;
+  player.y += player.vy*dt;
+  player.onGround = false;
+
+  // 下からブロックをたたく
+  if(player.vy < 0){
+    for(const b of blocks){
+      if(!b.alive) continue;
+
+      const touchingX =
+        player.x + player.w > b.x &&
+        player.x < b.x + b.w;
+
+      const crossedBottom =
+        oldY >= b.y + b.h - 4 &&
+        player.y <= b.y + b.h;
+
+      if(touchingX && crossedBottom){
+        b.alive = false;
+        player.y = b.y + b.h;
+        player.vy = 150;
+        burst(b.x+b.w/2, b.y+b.h/2);
+        break;
+      }
+    }
+  }
+
+  // 足場に着地
+  if(player.vy >= 0){
+    for(const p of platforms){
+      const touchingX =
+        player.x + player.w > p.x &&
+        player.x < p.x + p.w;
+
+      const crossedTop =
+        oldY + player.h <= p.y + 5 &&
+        player.y + player.h >= p.y;
+
+      if(touchingX && crossedTop){
+        player.y = p.y - player.h;
+        player.vy = 0;
+        player.onGround = true;
+        break;
+      }
+    }
+  }
+
+  // コイン
+  coins = coins.filter(c => {
+    const coinBox = {x:c.x-14,y:c.y-14,w:28,h:28};
+    if(rectHit(player, coinBox)){
+      burst(c.x,c.y);
+      return false;
+    }
+    return true;
+  });
+
+  if(player.y > H + 120){
+    reset();
+  }
+
+  if(coins.length === 0){
+    won = true;
+  }
+
+  for(const p of particles){
+    p.x += p.vx*dt;
+    p.y += p.vy*dt;
+    p.vy += 900*dt;
+    p.life -= 1.8*dt;
+  }
+  particles = particles.filter(p => p.life > 0);
+}
+
+function drawCoin(x,y){
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.fillStyle = "#ffd84d";
+  ctx.beginPath();
+  ctx.arc(0,0,14,0,Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle = "#fff3a6";
+  ctx.beginPath();
+  ctx.arc(-4,-4,4,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBlock(b){
+  ctx.fillStyle = "#c97b3c";
+  ctx.fillRect(b.x,b.y,b.w-2,b.h-2);
+
+  ctx.strokeStyle = "#7a4425";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(b.x+1,b.y+1,b.w-4,b.h-4);
+
+  ctx.beginPath();
+  ctx.moveTo(b.x+3,b.y+24);
+  ctx.lineTo(b.x+b.w-5,b.y+24);
+  ctx.moveTo(b.x+26,b.y+3);
+  ctx.lineTo(b.x+26,b.y+22);
+  ctx.moveTo(b.x+13,b.y+27);
+  ctx.lineTo(b.x+13,b.y+47);
+  ctx.moveTo(b.x+39,b.y+27);
+  ctx.lineTo(b.x+39,b.y+47);
+  ctx.stroke();
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+
+  const sky = ctx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,"#5ec8ff");
+  sky.addColorStop(1,"#d9f4ff");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0,0,W,H);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(120,90,30,0,Math.PI*2);
+  ctx.arc(155,88,38,0,Math.PI*2);
+  ctx.arc(195,92,27,0,Math.PI*2);
+  ctx.fill();
+
+  for(const p of platforms){
+    ctx.fillStyle = "#40b96d";
+    ctx.fillRect(p.x,p.y,p.w,p.h);
+    ctx.fillStyle = "#277a48";
+    ctx.fillRect(p.x,p.y+12,p.w,p.h-12);
+  }
+
+  for(const b of blocks){
+    if(b.alive) drawBlock(b);
+  }
+
+  for(const c of coins){
+    drawCoin(c.x,c.y);
+  }
+
+  // プレイヤー
+  ctx.fillStyle = "#ff5f7e";
+  ctx.fillRect(player.x,player.y,player.w,player.h);
+
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(player.x+11,player.y+15,6,0,Math.PI*2);
+  ctx.arc(player.x+27,player.y+15,6,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle = "#111827";
+  ctx.beginPath();
+  ctx.arc(player.x+12,player.y+16,2.5,0,Math.PI*2);
+  ctx.arc(player.x+28,player.y+16,2.5,0,Math.PI*2);
+  ctx.fill();
+
+  for(const p of particles){
+    ctx.globalAlpha = Math.max(0,p.life);
+    ctx.fillStyle = "#ffd84d";
+    ctx.fillRect(p.x,p.y,5,5);
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.fillStyle = "#111827";
+  ctx.font = "bold 24px system-ui";
+  ctx.fillText("コイン のこり " + coins.length, 24, 38);
+  ctx.fillText("こわしたブロック " + blocks.filter(b=>!b.alive).length, 24, 70);
+
+  if(won){
+    ctx.fillStyle = "#0009";
+    ctx.fillRect(0,0,W,H);
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 54px system-ui";
+    ctx.fillText("クリア！",W/2,235);
+    ctx.font = "24px system-ui";
+    ctx.fillText("コインを ぜんぶ あつめた！",W/2,285);
+    ctx.fillText("Rキーで もういちど",W/2,330);
+    ctx.textAlign = "left";
+  }
+}
+
+let last = performance.now();
+
+function loop(now){
+  const dt = Math.min((now-last)/1000,0.033);
+  last = now;
+
+  update(dt);
+  draw();
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

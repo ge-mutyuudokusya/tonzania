@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ナイトメア館からの脱出</title>
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:#09090d;color:#fff;font-family:system-ui,sans-serif;
+    display:flex;justify-content:center;align-items:center;min-height:100vh;overflow:hidden;
+  }
+  .wrap{text-align:center}
+  h1{margin:0 0 8px;font-size:28px}
+  p{margin:6px 0 10px;color:#ddd}
+  canvas{
+    background:#15151b;border:3px solid #777;border-radius:8px;
+    box-shadow:0 0 35px rgba(0,0,0,.9);max-width:96vw;max-height:78vh;
+  }
+  .hint{font-size:14px;color:#aaa}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>👁 ナイトメア館からの脱出</h1>
+  <p>鍵を3つ集めて、出口から逃げろ。化け物に捕まるな！</p>
+  <canvas id="game" width="960" height="600"></canvas>
+  <div class="hint">移動: WASD / 矢印キー　ダッシュ: Shift　リスタート: Enter</div>
+</div>
+
+<script>
+const c=document.getElementById("game"),ctx=c.getContext("2d");
+const W=c.width,H=c.height,T=40;
+const keys={};
+const moveCodes=new Set(["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","KeyA","KeyD","KeyW","KeyS","ShiftLeft","ShiftRight"]);
+addEventListener("keydown",e=>{
+  if(moveCodes.has(e.code)) e.preventDefault();
+  keys[e.code]=true;
+  if((gameOver||won)&&e.code==="Enter") restart();
+},{passive:false});
+addEventListener("keyup",e=>{
+  if(moveCodes.has(e.code)) e.preventDefault();
+  keys[e.code]=false;
+},{passive:false});
+window.addEventListener("blur",()=>{for(const k in keys) keys[k]=false;});
+
+const map=[
+"########################",
+"#....#.................#",
+"#....#..######..#####..#",
+"#.......#........#.....#",
+"###.#####.######.#.###.#",
+"#.........#......#.....#",
+"#.#######.#.######.###.#",
+"#.#.......#..........#.#",
+"#.#.##########.#######.#",
+"#.#............#.......#",
+"#.############.#.#####.#",
+"#..............#.....#.#",
+"#.###############.#.#.#",
+"#.................#...E#",
+"########################"
+];
+
+let player,monster,keyItems,doorOpen,gameOver,won,alertTimer;
+
+function resetEntities(){
+  player={x:1.5*T,y:1.5*T,r:12,speed:2.35,stamina:100,keys:0,inv:0};
+  monster={x:18.5*T,y:11.5*T,r:14,speed:1.45,awake:false,lastSeenX:0,lastSeenY:0};
+  // 鍵は必ず "." の床マスの中央に置く
+  keyItems=[
+    {x:6.5*T,y:3.5*T,taken:false},
+    {x:19.5*T,y:7.5*T,taken:false},
+    {x:3.5*T,y:11.5*T,taken:false}
+  ];
+  doorOpen=false; gameOver=false; won=false; alertTimer=0;
+}
+resetEntities();
+
+function wallAt(px,py){
+  const mx=Math.floor(px/T),my=Math.floor(py/T);
+  if(my<0||my>=map.length||mx<0||mx>=map[0].length)return true;
+  return map[my][mx]==="#";
+}
+
+function blocked(x,y,r){
+  return wallAt(x-r,y-r)||wallAt(x+r,y-r)||wallAt(x-r,y+r)||wallAt(x+r,y+r);
+}
+
+function nearestFloorCenter(x,y){
+  const sx=Math.floor(x/T), sy=Math.floor(y/T);
+  for(let radius=0;radius<8;radius++){
+    for(let yy=sy-radius;yy<=sy+radius;yy++){
+      for(let xx=sx-radius;xx<=sx+radius;xx++){
+        if(yy>=0&&yy<map.length&&xx>=0&&xx<map[0].length&&map[yy][xx]!== "#"){
+          return {x:(xx+.5)*T,y:(yy+.5)*T};
+        }
+      }
+    }
+  }
+  return {x:1.5*T,y:1.5*T};
+}
+
+function moveEntity(e,dx,dy){
+  // 小さく分割して動かし、速い移動でも壁をすり抜けないようにする
+  const steps=Math.max(1,Math.ceil(Math.max(Math.abs(dx),Math.abs(dy))/2));
+  const sx=dx/steps, sy=dy/steps;
+  for(let i=0;i<steps;i++){
+    if(!blocked(e.x+sx,e.y,e.r)) e.x+=sx;
+    if(!blocked(e.x,e.y+sy,e.r)) e.y+=sy;
+  }
+}
+
+function lineOfSight(a,b){
+  const d=Math.hypot(b.x-a.x,b.y-a.y);
+  const steps=Math.ceil(d/12);
+  for(let i=0;i<=steps;i++){
+    const t=i/steps,x=a.x+(b.x-a.x)*t,y=a.y+(b.y-a.y)*t;
+    if(wallAt(x,y))return false;
+  }
+  return true;
+}
+
+function update(){
+  if(gameOver||won)return;
+
+  // 念のため、何かの拍子に壁へ入ったら直ちに床へ戻す
+  if(blocked(player.x,player.y,player.r)){
+    const p=nearestFloorCenter(player.x,player.y);
+    player.x=p.x; player.y=p.y;
+  }
+  if(blocked(monster.x,monster.y,monster.r)){
+    const p=nearestFloorCenter(monster.x,monster.y);
+    monster.x=p.x; monster.y=p.y;
+  }
+
+  let dx=0,dy=0;
+  if(keys["KeyA"]||keys["ArrowLeft"])dx--;
+  if(keys["KeyD"]||keys["ArrowRight"])dx++;
+  if(keys["KeyW"]||keys["ArrowUp"])dy--;
+  if(keys["KeyS"]||keys["ArrowDown"])dy++;
+  if(dx&&dy){dx*=.707;dy*=.707}
+
+  let sp=player.speed;
+  if((keys["ShiftLeft"]||keys["ShiftRight"])&&player.stamina>0&&(dx||dy)){
+    sp*=1.75;player.stamina=Math.max(0,player.stamina-.8);
+  }else{
+    player.stamina=Math.min(100,player.stamina+.32);
+  }
+  moveEntity(player,dx*sp,dy*sp);
+
+  keyItems.forEach(k=>{
+    if(!k.taken&&Math.hypot(player.x-k.x,player.y-k.y)<24){
+      k.taken=true;player.keys++;monster.awake=true;alertTimer=120;
+      if(player.keys>=3)doorOpen=true;
+    }
+  });
+
+  const dist=Math.hypot(player.x-monster.x,player.y-monster.y);
+  if(dist<250||player.keys>0) monster.awake=true;
+
+  if(monster.awake){
+    // monster follows player; slightly speeds up after each key
+    monster.speed=1.35+player.keys*.23+(dist>330?.12:0);
+    if(lineOfSight(monster,player)){
+      monster.lastSeenX=player.x;monster.lastSeenY=player.y;
+    }else if(!monster.lastSeenX){
+      monster.lastSeenX=player.x;monster.lastSeenY=player.y;
+    }
+
+    let tx=monster.lastSeenX||player.x,ty=monster.lastSeenY||player.y;
+    // If near last seen point, reacquire approximate player position
+    if(Math.hypot(monster.x-tx,monster.y-ty)<25){
+      tx=player.x;ty=player.y;monster.lastSeenX=tx;monster.lastSeenY=ty;
+    }
+    const a=Math.atan2(ty-monster.y,tx-monster.x);
+    const mx=Math.cos(a)*monster.speed,my=Math.sin(a)*monster.speed;
+    moveEntity(monster,mx,my);
+
+    // Wall-stuck helper
+    if(Math.random()<.04 && !lineOfSight(monster,player)){
+      monster.lastSeenX=player.x+(Math.random()-.5)*100;
+      monster.lastSeenY=player.y+(Math.random()-.5)*100;
+    }
+  }
+
+  if(Math.hypot(player.x-monster.x,player.y-monster.y)<player.r+monster.r+2){
+    gameOver=true;
+  }
+
+  const gx=22.5*T,gy=13.5*T;
+  if(doorOpen&&Math.hypot(player.x-gx,player.y-gy)<28) won=true;
+
+  if(alertTimer>0)alertTimer--;
+}
+
+function drawMap(){
+  for(let y=0;y<map.length;y++)for(let x=0;x<map[y].length;x++){
+    const ch=map[y][x],px=x*T,py=y*T;
+    if(ch==="#"){
+      ctx.fillStyle=((x+y)%2?"#272731":"#22222a");
+      ctx.fillRect(px,py,T,T);
+      ctx.strokeStyle="#393944";ctx.strokeRect(px,py,T,T);
+    }else{
+      ctx.fillStyle=((x+y)%2?"#15151b":"#181820");
+      ctx.fillRect(px,py,T,T);
+    }
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);drawMap();
+
+  // exit
+  const ex=22*T,ey=13*T;
+  ctx.fillStyle=doorOpen?"#2a8f4b":"#6b2424";
+  ctx.fillRect(ex+8,ey+4,24,36);
+  ctx.fillStyle="#ddd";ctx.font="12px sans-serif";ctx.textAlign="center";
+  ctx.fillText(doorOpen?"EXIT":"LOCK",ex+20,ey-4);
+
+  // keys
+  keyItems.forEach(k=>{
+    if(k.taken)return;
+    ctx.save();ctx.translate(k.x,k.y);ctx.rotate(-.35);
+    ctx.fillStyle="#ffd84a";ctx.fillRect(-10,-3,20,6);
+    ctx.beginPath();ctx.arc(-10,0,7,0,Math.PI*2);ctx.strokeStyle="#ffd84a";ctx.lineWidth=4;ctx.stroke();
+    ctx.fillRect(6,1,4,7);ctx.restore();
+  });
+
+  // monster
+  if(monster.awake){
+    ctx.beginPath();ctx.arc(monster.x,monster.y,monster.r,0,Math.PI*2);
+    ctx.fillStyle="#6d3aa8";ctx.fill();
+    ctx.fillStyle="white";
+    ctx.beginPath();ctx.arc(monster.x-6,monster.y-4,4,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(monster.x+6,monster.y-4,4,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="#111";
+    ctx.beginPath();ctx.arc(monster.x-6,monster.y-4,1.8,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.arc(monster.x+6,monster.y-4,1.8,0,Math.PI*2);ctx.fill();
+  }
+
+  // player
+  ctx.beginPath();ctx.arc(player.x,player.y,player.r,0,Math.PI*2);
+  ctx.fillStyle="#4db3ff";ctx.fill();
+
+  // darkness / flashlight effect
+  const grad=ctx.createRadialGradient(player.x,player.y,55,player.x,player.y,190);
+  grad.addColorStop(0,"rgba(0,0,0,0)");
+  grad.addColorStop(.5,"rgba(0,0,0,.2)");
+  grad.addColorStop(1,"rgba(0,0,0,.94)");
+  ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+
+  // HUD
+  ctx.fillStyle="rgba(0,0,0,.65)";ctx.fillRect(10,10,240,70);
+  ctx.fillStyle="white";ctx.textAlign="left";ctx.font="18px sans-serif";
+  ctx.fillText(`🔑 鍵: ${player.keys}/3`,22,36);
+  ctx.fillText("ダッシュ",22,62);
+  ctx.fillStyle="#333";ctx.fillRect(100,49,120,13);
+  ctx.fillStyle="#ddd";ctx.fillRect(100,49,120*(player.stamina/100),13);
+
+  if(alertTimer>0){
+    ctx.fillStyle="rgba(120,0,0,.25)";ctx.fillRect(0,0,W,H);
+    ctx.fillStyle="#ff6969";ctx.textAlign="center";ctx.font="bold 28px sans-serif";
+    ctx.fillText("何かが動き出した…！",W/2,40);
+  }
+
+  if(gameOver||won){
+    ctx.fillStyle="rgba(0,0,0,.82)";ctx.fillRect(0,0,W,H);
+    ctx.textAlign="center";
+    ctx.fillStyle=won?"#8cffae":"#ff6262";
+    ctx.font="bold 52px sans-serif";
+    ctx.fillText(won?"脱出成功！":"捕まった…",W/2,H/2-35);
+    ctx.fillStyle="white";ctx.font="24px sans-serif";
+    ctx.fillText("Enterキーで最初から",W/2,H/2+25);
+  }
+}
+
+function restart(){
+  for(const k in keys) keys[k]=false;
+  resetEntities();
+}
+
+function loop(){update();draw();requestAnimationFrame(loop)}
+loop();
+</script>
+</body>
+</html>
