@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Roblox風 3Dアスレチック・オビー (Athletic Obby)</title>
+<!-- Three.js CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+  body {
+    background: #000;
+    color: #fff;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    overflow: hidden;
+    touch-action: manipulation;
+  }
+  
+  /* Roblox風 UIバー */
+  #roblox-topbar {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 15px;
+    background: rgba(30, 30, 30, 0.75);
+    padding: 8px 18px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-weight: bold;
+    font-size: 14px;
+    z-index: 10;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
+  .stat-val { color: #00e5ff; }
+  .iron-val { color: #f1f5f9; }
+
+  /* スマホ用コントローラー */
+  #mobile-ui {
+    position: absolute;
+    bottom: 20px;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 25px;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .d-pad {
+    display: grid;
+    grid-template-columns: repeat(3, 48px);
+    grid-template-rows: repeat(3, 48px);
+    gap: 5px;
+    pointer-events: auto;
+  }
+  .action-btns {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    pointer-events: auto;
+  }
+  .t-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+    touch-action: none;
+  }
+  .t-btn:active { background: rgba(255, 255, 255, 0.5); transform: scale(0.92); }
+  .btn-jump { width: 65px; height: 65px; background: rgba(56, 189, 248, 0.3); border-color: #38bdf8; }
+  .btn-slash { width: 65px; height: 65px; background: rgba(239, 68, 68, 0.3); border-color: #ef4444; }
+
+  /* "OOF!" ゲームオーバー演出 */
+  #oof-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #ff3333;
+    font-size: 50px;
+    font-weight: 900;
+    text-shadow: 0 0 20px #000;
+    display: none;
+    z-index: 20;
+    text-align: center;
+  }
+  #oof-overlay span {
+    font-size: 18px;
+    color: #fff;
+    display: block;
+    margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+
+<div id="roblox-topbar">
+  <div>🚩 ステージ: <span id="stageScore" class="stat-val">1</span></div>
+  <div>⛏️ 鉄: <span id="ironScore" class="iron-val">0</span></div>
+  <div>💥 撃破: <span id="killScore" class="stat-val">0</span></div>
+</div>
+
+<div id="oof-overlay">
+  OOF!
+  <span>リスポーン中...</span>
+</div>
+
+<div id="mobile-ui">
+  <!-- 十字キー -->
+  <div class="d-pad">
+    <div></div>
+    <div class="t-btn" id="m-up">▲</div>
+    <div></div>
+    <div class="t-btn" id="m-left">◀</div>
+    <div></div>
+    <div class="t-btn" id="m-right">▶</div>
+    <div></div>
+    <div class="t-btn" id="m-down">▼</div>
+    <div></div>
+  </div>
+  <!-- アクションボタン -->
+  <div class="action-btns">
+    <div class="t-btn btn-slash" id="m-slash">⚔️</div>
+    <div class="t-btn btn-jump" id="m-jump">JUMP</div>
+  </div>
+</div>
+
+<script>
+// 1. シーン・カメラ・レンダラーの初期化
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x71b5ff); // Robloxブルースカイ
+scene.fog = new THREE.Fog(0x71b5ff, 40, 140);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+// ライト
+const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444455, 0.8);
+scene.add(hemiLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+dirLight.position.set(30, 60, 20);
+dirLight.castShadow = true;
+dirLight.shadow.camera.top = 40;
+dirLight.shadow.camera.bottom = -40;
+dirLight.shadow.camera.left = -40;
+dirLight.shadow.camera.right = 40;
+scene.add(dirLight);
+
+// 2. Robloxアバターの作成（ブロックキャラ）
+const playerGroup = new THREE.Group();
+const matYellow = new THREE.MeshLambertMaterial({ color: 0xfacc15 }); // 頭・腕
+const matBlue = new THREE.MeshLambertMaterial({ color: 0x0284c7 });   // 胴体
+const matGreen = new THREE.MeshLambertMaterial({ color: 0x16a34a });  // 脚
+
+// 頭
+const head = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), matYellow);
+head.position.y = 2.0;
+head.castShadow = true;
+playerGroup.add(head);
+
+// 胴体
+const torso = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 0.6), matBlue);
+torso.position.y = 1.0;
+torso.castShadow = true;
+playerGroup.add(torso);
+
+// 腕
+const armL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.1, 0.4), matYellow);
+armL.position.set(-0.8, 1.0, 0);
+armL.castShadow = true;
+playerGroup.add(armL);
+
+const armR = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.1, 0.4), matYellow);
+armR.position.set(0.8, 1.0, 0);
+armR.castShadow = true;
+playerGroup.add(armR);
+
+// 鉄の剣 (Iron Sword) を右手に装備
+const swordGroup = new THREE.Group();
+const bladeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8, roughness: 0.2 });
+const hiltMat = new THREE.MeshLambertMaterial({ color: 0x78350f });
+
+const blade = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.8, 0.3), bladeMat);
+blade.position.y = 1.0;
+blade.castShadow = true;
+swordGroup.add(blade);
+
+const guard = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 0.7), bladeMat);
+guard.position.y = 0.1;
+swordGroup.add(guard);
+
+const handle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.4, 0.1), hiltMat);
+handle.position.y = -0.15;
+swordGroup.add(handle);
+
+swordGroup.position.set(0.85, 0.9, 0.4);
+swordGroup.rotation.x = Math.PI / 3;
+playerGroup.add(swordGroup);
+
+// 脚
+const legL = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.1, 0.55), matGreen);
+legL.position.set(-0.3, 0.1, 0);
+legL.castShadow = true;
+playerGroup.add(legL);
+
+const legR = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.1, 0.55), matGreen);
+legR.position.set(0.3, 0.1, 0);
+legR.castShadow = true;
+playerGroup.add(legR);
+
+scene.add(playerGroup);
+
+// 3. アスレチック・ステージ（オビー）生成
+const platforms = [];
+const killBricks = []; // 赤い即死レーザー/マグマブロック
+const ironItems = [];  // 鉄インゴット
+const destroyableBlocks = [];
+
+let currentStage = 1;
+let ironCount = 0;
+let killCount = 0;
+let respawnPoint = new THREE.Vector3(0, 5, 0);
+
+function createObby() {
+  // スタート地点
+  const startPlat = new THREE.Mesh(
+    new THREE.BoxGeometry(10, 2, 10),
+    new THREE.MeshLambertMaterial({ color: 0x64748b })
+  );
+  startPlat.position.set(0, 0, 0);
+  startPlat.receiveShadow = true;
+  scene.add(startPlat);
+  platforms.push({ mesh: startPlat, size: new THREE.Vector3(10, 2, 10) });
+
+  let curZ = -10;
+  let curY = 0;
+
+  for (let i = 1; i <= 25; i++) {
+    const gap = 6 + Math.random() * 3;
+    curZ -= gap;
+    curY += (Math.random() - 0.3) * 2;
+
+    // 足場ブロック
+    const pWidth = 4 + Math.random() * 2;
+    const pLength = 4 + Math.random() * 2;
+    const colors = [0x22c55e, 0x3b82f6, 0xa855f7, 0xf59e0b];
+    const platColor = colors[i % colors.length];
+
+    const plat = new THREE.Mesh(
+      new THREE.BoxGeometry(pWidth, 1.5, pLength),
+      new THREE.MeshLambertMaterial({ color: platColor })
+    );
+    plat.position.set((Math.random() - 0.5) * 4, curY, curZ);
+    plat.receiveShadow = true;
+    plat.castShadow = true;
+    scene.add(plat);
+    platforms.push({ mesh: plat, size: new THREE.Vector3(pWidth, 1.5, pLength) });
+
+    // 鉄インゴット（収集アイテム）
+    const ironMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.8, 0.4, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.9, roughness: 0.1 })
+    );
+    ironMesh.position.set(plat.position.x, plat.position.y + 1.5, plat.position.z);
+    scene.add(ironMesh);
+    ironItems.push(ironMesh);
+
+    // 破壊可能な赤いキルブロック（トゲ・マグマ）
+    if (i % 2 === 0) {
+      const danger = new THREE.Mesh(
+        new THREE.BoxGeometry(1.4, 1.4, 1.4),
+        new THREE.MeshBasicMaterial({ color: 0xff0044 }) // ネオンレッド
+      );
+      danger.position.set(plat.position.x, plat.position.y + 1.8, plat.position.z + (Math.random() - 0.5) * 2);
+      scene.add(danger);
+      destroyableBlocks.push(danger);
+    }
+  }
+}
+createObby();
+
+// 4. プレイヤー物理・状態
+const pState = {
+  pos: new THREE.Vector3(0, 4, 0),
+  vel: new THREE.Vector3(0, 0, 0),
+  speed: 0.22,
+  jumpPower: 0.38,
+  grounded: false,
+  isSlashing: false,
+  slashTime: 0
+};
+
+// 入力管理
+const keys = { w: false, a: false, s: false, d: false, space: false };
+window.addEventListener('keydown', e => {
+  if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') keys.w = true;
+  if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') keys.s = true;
+  if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') keys.a = true;
+  if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') keys.d = true;
+  if (e.key === ' ') doJump();
+  if (e.key === 'j' || e.key === 'J' || e.key === 'z' || e.key === 'Z') doSlash();
+});
+window.addEventListener('keyup', e => {
+  if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') keys.w = false;
+  if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') keys.s = false;
+  if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') keys.a = false;
+  if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') keys.d = false;
+});
+
+// スマホタッチバインド
+function bindTouch(id, k) {
+  const el = document.getElementById(id);
+  el.addEventListener('touchstart', e => { e.preventDefault(); keys[k] = true; });
+  el.addEventListener('touchend', e => { e.preventDefault(); keys[k] = false; });
+}
+bindTouch('m-up', 'w');
+bindTouch('m-down', 's');
+bindTouch('m-left', 'a');
+bindTouch('m-right', 'd');
+document.getElementById('m-jump').addEventListener('touchstart', e => { e.preventDefault(); doJump(); });
+document.getElementById('m-slash').addEventListener('touchstart', e => { e.preventDefault(); doSlash(); });
+
+function doJump() {
+  if (pState.grounded) {
+    pState.vel.y = pState.jumpPower;
+    pState.grounded = false;
+  }
+}
+
+function doSlash() {
+  if (!pState.isSlashing) {
+    pState.isSlashing = true;
+    pState.slashTime = 0;
+  }
+}
+
+function triggerOof() {
+  document.getElementById('oof-overlay').style.display = 'block';
+  setTimeout(() => {
+    pState.pos.copy(respawnPoint);
+    pState.vel.set(0, 0, 0);
+    document.getElementById('oof-overlay').style.display = 'none';
+  }, 700);
+}
+
+// 5. メインループ
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+
+  // 移動計算
+  let mx = 0;
+  let mz = 0;
+  if (keys.w) mz -= 1;
+  if (keys.s) mz += 1;
+  if (keys.a) mx -= 1;
+  if (keys.d) mx += 1;
+
+  if (mx !== 0 || mz !== 0) {
+    const moveDir = new THREE.Vector2(mx, mz).normalize();
+    pState.pos.x += moveDir.x * pState.speed;
+    pState.pos.z += moveDir.y * pState.speed;
+    playerGroup.rotation.y = Math.atan2(-moveDir.x, -moveDir.y);
+  }
+
+  // 重力
+  pState.vel.y -= 0.015;
+  pState.pos.y += pState.vel.y;
+
+  // 足場衝突判定 (AABB)
+  pState.grounded = false;
+  platforms.forEach(p => {
+    const minX = p.mesh.position.x - p.size.x / 2 - 0.4;
+    const maxX = p.mesh.position.x + p.size.x / 2 + 0.4;
+    const minZ = p.mesh.position.z - p.size.z / 2 - 0.4;
+    const maxZ = p.mesh.position.z + p.size.z / 2 + 0.4;
+    const topY = p.mesh.position.y + p.size.y / 2;
+
+    if (
+      pState.pos.x >= minX && pState.pos.x <= maxX &&
+      pState.pos.z >= minZ && pState.pos.z <= maxZ &&
+      pState.pos.y >= topY - 0.4 && pState.pos.y <= topY + 0.6 &&
+      pState.vel.y <= 0
+    ) {
+      pState.pos.y = topY;
+      pState.vel.y = 0;
+      pState.grounded = true;
+    }
+  });
+
+  // 鉄インゴット回収
+  ironItems.forEach((iron, index) => {
+    iron.rotation.y += 0.03;
+    if (iron.position.distanceTo(pState.pos) < 1.6) {
+      scene.remove(iron);
+      ironItems.splice(index, 1);
+      ironCount++;
+      document.getElementById('ironScore').textContent = ironCount;
+    }
+  });
+
+  // 剣を振るアニメーション＆破壊判定
+  if (pState.isSlashing) {
+    pState.slashTime += 0.2;
+    swordGroup.rotation.x = Math.PI / 3 + Math.sin(pState.slashTime * Math.PI) * 1.5;
+    
+    // 剣の攻撃判定
+    destroyableBlocks.forEach((dBlock, idx) => {
+      if (dBlock.position.distanceTo(pState.pos) < 2.8) {
+        scene.remove(dBlock);
+        destroyableBlocks.splice(idx, 1);
+        killCount++;
+        document.getElementById('killScore').textContent = killCount;
+      }
+    });
+
+    if (pState.slashTime >= 1) {
+      pState.isSlashing = false;
+      swordGroup.rotation.x = Math.PI / 3;
+    }
+  }
+
+  // 危険ブロック接触（即死）
+  destroyableBlocks.forEach(dBlock => {
+    if (dBlock.position.distanceTo(pState.pos) < 1.2) {
+      triggerOof();
+    }
+  });
+
+  // 落下判定
+  if (pState.pos.y < -15) {
+    triggerOof();
+  }
+
+  // プレイヤー位置適用
+  playerGroup.position.copy(pState.pos);
+
+  // ステージ進行度計算
+  const stage = Math.max(1, Math.floor(-pState.pos.z / 8) + 1);
+  document.getElementById('stageScore').textContent = stage;
+
+  // Robloxスタイルの3人称追従カメラ
+  const targetCamPos = new THREE.Vector3(
+    pState.pos.x,
+    pState.pos.y + 4.5,
+    pState.pos.z + 9.5
+  );
+  camera.position.lerp(targetCamPos, 0.1);
+  camera.lookAt(pState.pos.x, pState.pos.y + 1.5, pState.pos.z);
+
+  renderer.render(scene, camera);
+}
+
+// リサイズ対応
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
+</script>
+</body>
+</html>

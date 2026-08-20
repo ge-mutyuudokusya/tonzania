@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>暴走ロボットからの脱出</title>
+<style>
+  * { box-sizing: border-box; touch-action: none; -webkit-user-select: none; user-select: none; }
+  body {
+    background: #0d1017;
+    color: #fff;
+    font-family: 'Arial Black', sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    max-width: 860px;
+    padding: 6px 14px;
+    background: #1a202c;
+    border-bottom: 2px solid #3d4d65;
+    font-size: 0.85rem;
+    z-index: 5;
+  }
+  #canvas-container {
+    position: relative;
+    width: 100%;
+    max-width: 860px;
+    flex: 1;
+    max-height: 580px;
+    background: #000;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas {
+    display: block;
+    background: #e6ecf2;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  #threat-banner {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ff0033;
+    color: #fff;
+    padding: 6px 18px;
+    font-size: 1rem;
+    font-weight: 900;
+    letter-spacing: 2px;
+    border-radius: 4px;
+    display: none;
+    box-shadow: 0 0 20px #ff0033;
+    animation: flash 0.15s infinite alternate;
+    pointer-events: none;
+    z-index: 4;
+  }
+  @keyframes flash {
+    from { opacity: 0.8; transform: translateX(-50%) scale(1); }
+    to { opacity: 1; transform: translateX(-50%) scale(1.05); }
+  }
+  .stamina-outer {
+    width: 90px;
+    height: 12px;
+    background: #0d1117;
+    border: 2px solid #00e676;
+    border-radius: 4px;
+    display: inline-block;
+    vertical-align: middle;
+    overflow: hidden;
+  }
+  #stamina-bar { width: 100%; height: 100%; background: #00e676; }
+
+  /* スマホ用タッチUI */
+  #touch-controls {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 3;
+  }
+  #dash-btn {
+    position: absolute;
+    bottom: 25px;
+    right: 25px;
+    width: 70px;
+    height: 70px;
+    background: radial-gradient(circle, #ff007f, #b30047);
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 900;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #fff;
+    box-shadow: 0 0 15px rgba(255, 0, 127, 0.6);
+    pointer-events: auto;
+  }
+  #dash-btn:active {
+    transform: scale(0.92);
+    background: #ff3399;
+  }
+  #joystick-base {
+    position: absolute;
+    width: 90px;
+    height: 90px;
+    border: 2px dashed rgba(0, 255, 204, 0.5);
+    border-radius: 50%;
+    display: none;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+  }
+  #joystick-knob {
+    position: absolute;
+    width: 40px;
+    height: 40px;
+    background: rgba(0, 255, 204, 0.8);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 10px #00ffcc;
+  }
+
+  /* ゴール演出UI */
+  #victory-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(10, 15, 26, 0.88);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    backdrop-filter: blur(4px);
+  }
+  #victory-title {
+    font-size: 2.2rem;
+    color: #00ffcc;
+    text-shadow: 0 0 20px #00ffcc, 0 0 40px #00e676;
+    margin: 0;
+    letter-spacing: 4px;
+    text-align: center;
+  }
+  #victory-sub {
+    font-size: 1rem;
+    color: #e0e0e0;
+    margin: 10px 0 20px 0;
+    text-align: center;
+  }
+  .retry-btn {
+    background: linear-gradient(45deg, #00e676, #00ffcc);
+    color: #0d1117;
+    font-size: 1.2rem;
+    font-weight: 900;
+    padding: 10px 30px;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    box-shadow: 0 0 20px rgba(0, 255, 204, 0.6);
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div>🏃 <div class="stamina-outer"><div id="stamina-bar"></div></div></div>
+  <div id="task-text" style="color: #ffb700;">🚩 解放 (残 3台)</div>
+  <div id="heartbeat-text" style="color: #00e676;">75 bpm</div>
+</div>
+
+<div id="canvas-container">
+  <canvas id="gameCanvas" width="860" height="580"></canvas>
+  <div id="threat-banner">🚨 ROBOT APPROACHING 🚨</div>
+
+  <div id="touch-controls">
+    <div id="joystick-base"><div id="joystick-knob"></div></div>
+    <div id="dash-btn">DASH</div>
+  </div>
+
+  <div id="victory-overlay">
+    <h1 id="victory-title">🎉 MISSION CLEAR</h1>
+    <div id="victory-sub">すべての暗号を解除し、生還した！</div>
+    <button class="retry-btn" onclick="location.reload()">もう一度遊ぶ</button>
+  </div>
+</div>
+
+<script>
+// サウンド合成 (Web Audio API)
+const Sound = {
+  ctx: null,
+  init() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); },
+  tone(freq, type, dur, gainVal = 0.1) {
+    if (!this.ctx) return;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+      gain.gain.setValueAtTime(gainVal, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + dur);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start();
+      osc.stop(this.ctx.currentTime + dur);
+    } catch(e){}
+  },
+  scream() { this.tone(180, 'sawtooth', 0.4, 0.25); this.tone(600, 'sawtooth', 0.25, 0.15); },
+  checkpoint() { this.tone(523, 'sine', 0.1, 0.1); setTimeout(() => this.tone(784, 'sine', 0.2, 0.15), 80); },
+  heartbeat() { this.tone(65, 'sine', 0.12, 0.3); },
+  fanfare() {
+    [523.25, 659.25, 783.99, 1046.50, 880.00, 1046.50].forEach((f, i) => {
+      setTimeout(() => { this.tone(f, 'triangle', 0.25, 0.2); }, i * 150);
+    });
+  }
+};
+window.addEventListener('touchstart', () => Sound.init(), { once: true });
+window.addEventListener('keydown', () => Sound.init(), { once: true });
+
+const TILE = 50;
+const MAP_W = 25;
+const MAP_H = 19;
+
+const MAZE = [
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,1],
+  [1,0,1,0,1,0,1,1,1,0,1,0,1,1,1,1,1,0,1,0,1,1,1,0,1],
+  [1,0,1,0,0,0,1,2,1,0,0,0,1,0,0,0,1,0,0,0,1,2,1,0,1],
+  [1,0,1,1,1,0,1,0,1,1,1,0,1,0,1,0,1,1,1,0,1,0,1,0,1],
+  [1,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,1],
+  [1,1,1,0,1,1,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1,1,1,0,1],
+  [1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,1],
+  [1,0,1,1,1,0,1,1,1,1,1,0,1,1,1,0,1,1,1,1,1,0,1,0,1],
+  [1,0,1,0,0,0,1,0,0,0,1,0,1,2,1,0,1,0,0,0,1,0,0,0,1],
+  [1,0,1,0,1,1,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,1,1,0,1],
+  [1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1,0,1,0,0,0,1,0,1],
+  [1,1,1,0,1,0,1,1,1,1,1,1,1,1,1,0,1,0,1,1,1,0,1,0,1],
+  [1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1],
+  [1,0,1,1,1,1,1,0,1,1,1,1,1,0,1,1,1,1,1,0,1,1,1,0,1],
+  [1,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1],
+  [1,0,1,0,1,0,1,0,1,0,1,0,1,1,1,0,1,0,1,1,1,1,1,0,1],
+  [1,0,0,0,0,3,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+
+const walkways = [];
+for (let r=0; r<MAP_H; r++) {
+  for (let c=0; c<MAP_W; c++) {
+    if (MAZE[r][c] !== 1) walkways.push({x: c, y: r});
+  }
+}
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const banner = document.getElementById('threat-banner');
+const taskText = document.getElementById('task-text');
+const heartbeatText = document.getElementById('heartbeat-text');
+const staminaBar = document.getElementById('stamina-bar');
+const victoryOverlay = document.getElementById('victory-overlay');
+const joyBase = document.getElementById('joystick-base');
+const joyKnob = document.getElementById('joystick-knob');
+const dashBtn = document.getElementById('dash-btn');
+
+const player = {
+  x: 1.5 * TILE,
+  y: 1.5 * TILE,
+  speed: 3.5,
+  stamina: 100,
+  checkpoint: { x: 1.5 * TILE, y: 1.5 * TILE }
+};
+
+const checkpoints = [
+  { x: 7, y: 3, done: false },
+  { x: 21, y: 3, done: false },
+  { x: 13, y: 9, done: false }
+];
+let portalUnlocked = false;
+let isGameCleared = false;
+
+const robot = {
+  active: false,
+  x: 0, y: 0,
+  angle: 0,
+  sawRotation: 0,
+  speed: 1.2,
+  mode: 'patrol',
+  targetTile: null
+};
+
+let screenShake = 0;
+let lastHeartbeat = 0;
+let confetti = [];
+
+// --- 入力管理（キーボード＆スライド操作） ---
+const keys = {};
+let touchMoveX = 0;
+let touchMoveY = 0;
+let touchDashing = false;
+let touchOrigin = null;
+
+// キーボード
+window.addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; });
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// ダッシュボタン
+dashBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); touchDashing = true; });
+dashBtn.addEventListener('touchend', (e) => { e.stopPropagation(); touchDashing = false; });
+
+// 画面タッチスライド
+const container = document.getElementById('canvas-container');
+container.addEventListener('touchstart', (e) => {
+  const touch = e.touches[0];
+  const rect = container.getBoundingClientRect();
+  const x = touch.clientX - rect.left;
+  const y = touch.clientY - rect.top;
+  touchOrigin = { x, y };
+
+  joyBase.style.display = 'block';
+  joyBase.style.left = x + 'px';
+  joyBase.style.top = y + 'px';
+  joyKnob.style.left = '45px';
+  joyKnob.style.top = '45px';
+});
+
+container.addEventListener('touchmove', (e) => {
+  if (!touchOrigin) return;
+  const touch = e.touches[0];
+  const rect = container.getBoundingClientRect();
+  const currentX = touch.clientX - rect.left;
+  const currentY = touch.clientY - rect.top;
+
+  let dx = currentX - touchOrigin.x;
+  let dy = currentY - touchOrigin.y;
+  const dist = Math.hypot(dx, dy);
+  const maxR = 40;
+
+  if (dist > 5) {
+    touchMoveX = dx / Math.max(dist, 1);
+    touchMoveY = dy / Math.max(dist, 1);
+  } else {
+    touchMoveX = 0;
+    touchMoveY = 0;
+  }
+
+  const clampedX = 45 + (dx / Math.max(dist, 1)) * Math.min(dist, maxR);
+  const clampedY = 45 + (dy / Math.max(dist, 1)) * Math.min(dist, maxR);
+  joyKnob.style.left = clampedX + 'px';
+  joyKnob.style.top = clampedY + 'px';
+});
+
+const endTouch = () => {
+  touchOrigin = null;
+  touchMoveX = 0;
+  touchMoveY = 0;
+  joyBase.style.display = 'none';
+};
+container.addEventListener('touchend', endTouch);
+container.addEventListener('touchcancel', endTouch);
+
+function spawnRobotRoutine() {
+  if (isGameCleared) return;
+  if (!robot.active) {
+    const ptX = Math.floor(player.x / TILE);
+    const ptY = Math.floor(player.y / TILE);
+    const farSpots = walkways.filter(w => Math.hypot(w.x - ptX, w.y - ptY) > 7);
+
+    if (farSpots.length > 0 && Math.random() < 0.7) {
+      const spot = farSpots[Math.floor(Math.random() * farSpots.length)];
+      robot.active = true;
+      robot.x = (spot.x + 0.5) * TILE;
+      robot.y = (spot.y + 0.5) * TILE;
+      robot.mode = 'stalk';
+      Sound.scream();
+    }
+  } else {
+    if (robot.mode === 'patrol' && Math.random() < 0.4) {
+      robot.active = false;
+    }
+  }
+  setTimeout(spawnRobotRoutine, 5000 + Math.random() * 4000);
+}
+setTimeout(spawnRobotRoutine, 2000);
+
+function getPath(start, target) {
+  const q = [[start.x, start.y, []]];
+  const visited = Array.from({length: MAP_H}, () => Array(MAP_W).fill(false));
+  visited[start.y][start.x] = true;
+  const dirs = [[0,1], [0,-1], [1,0], [-1,0]];
+
+  while (q.length > 0) {
+    const [cx, cy, path] = q.shift();
+    if (cx === target.x && cy === target.y) return path;
+
+    for (const [dx, dy] of dirs) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H && MAZE[ny][nx] !== 1 && !visited[ny][nx]) {
+        visited[ny][nx] = true;
+        q.push([nx, ny, [...path, {x: nx, y: ny}]]);
+      }
+    }
+  }
+  return null;
+}
+
+function createConfetti(x, y, count = 80) {
+  const colors = ['#00ffcc', '#ff007f', '#ffd700', '#00e676', '#ff9100', '#ffffff'];
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 2 + Math.random() * 8;
+    confetti.push({
+      x: x, y: y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 3,
+      size: 5 + Math.random() * 6,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      rot: Math.random() * 360,
+      vRot: (Math.random() - 0.5) * 10,
+      gravity: 0.15,
+      life: 180 + Math.random() * 60
+    });
+  }
+}
+
+function triggerGoalPresentation() {
+  isGameCleared = true;
+  banner.style.display = 'none';
+  heartbeatText.innerText = "SAFE";
+  heartbeatText.style.color = "#00ffcc";
+
+  if (robot.active) {
+    createConfetti(robot.x, robot.y, 40);
+    robot.active = false;
+  }
+  createConfetti(player.x, player.y, 120);
+  Sound.fanfare();
+  screenShake = 15;
+
+  setInterval(() => {
+    createConfetti(player.x + (Math.random() - 0.5) * 400, player.y - 100 + (Math.random() - 0.5) * 200, 30);
+  }, 400);
+
+  setTimeout(() => {
+    victoryOverlay.style.display = 'flex';
+  }, 800);
+}
+
+function update() {
+  if (isGameCleared) {
+    confetti.forEach(p => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += p.gravity;
+      p.vx *= 0.98;
+      p.rot += p.vRot;
+      p.life--;
+    });
+    confetti = confetti.filter(p => p.life > 0);
+    if (screenShake > 0) screenShake *= 0.9;
+    return;
+  }
+
+  const dashing = (keys['shift'] || touchDashing) && player.stamina > 5;
+  let spd = player.speed * (dashing ? 1.6 : 1.0);
+  player.stamina = dashing ? Math.max(0, player.stamina - 0.7) : Math.min(100, player.stamina + 0.35);
+  staminaBar.style.width = player.stamina + '%';
+
+  // キーボード＋スライドの移動値統合
+  let dx = touchMoveX;
+  let dy = touchMoveY;
+
+  if (keys['arrowup'] || keys['w']) dy -= 1;
+  if (keys['arrowdown'] || keys['s']) dy += 1;
+  if (keys['arrowleft'] || keys['a']) dx -= 1;
+  if (keys['arrowright'] || keys['d']) dx += 1;
+
+  const len = Math.hypot(dx, dy);
+  if (len > 1) { dx /= len; dy /= len; }
+
+  const nx = player.x + dx * spd;
+  const ny = player.y + dy * spd;
+  const r = 12;
+
+  if (MAZE[Math.floor(player.y/TILE)][Math.floor((nx-r)/TILE)] !== 1 &&
+      MAZE[Math.floor(player.y/TILE)][Math.floor((nx+r)/TILE)] !== 1) {
+    player.x = nx;
+  }
+  if (MAZE[Math.floor((ny-r)/TILE)][Math.floor(player.x/TILE)] !== 1 &&
+      MAZE[Math.floor((ny+r)/TILE)][Math.floor(player.x/TILE)] !== 1) {
+    player.y = ny;
+  }
+
+  const ptX = Math.floor(player.x / TILE);
+  const ptY = Math.floor(player.y / TILE);
+
+  checkpoints.forEach(cp => {
+    if (!cp.done && cp.x === ptX && cp.y === ptY) {
+      cp.done = true;
+      player.checkpoint = { x: (cp.x + 0.5) * TILE, y: (cp.y + 0.5) * TILE };
+      createConfetti(player.checkpoint.x, player.checkpoint.y, 25);
+      Sound.checkpoint();
+      screenShake = 6;
+    }
+  });
+
+  const remaining = checkpoints.filter(c => !c.done).length;
+  if (remaining === 0 && !portalUnlocked) {
+    portalUnlocked = true;
+    taskText.innerText = "🚨 非常口解放！";
+    taskText.style.color = "#00e676";
+  } else if (!portalUnlocked) {
+    taskText.innerText = `🚩 残り ${remaining}台`;
+  }
+
+  if (portalUnlocked && MAZE[ptY][ptX] === 3) {
+    triggerGoalPresentation();
+  }
+
+  if (robot.active) {
+    const dist = Math.hypot(robot.x - player.x, robot.y - player.y);
+    robot.sawRotation += 0.2;
+
+    const heartInterval = Math.max(220, dist * 2.5);
+    if (Date.now() - lastHeartbeat > heartInterval) {
+      Sound.heartbeat();
+      lastHeartbeat = Date.now();
+      const bpm = Math.min(160, Math.floor(75 + (500 - Math.min(500, dist)) * 0.2));
+      heartbeatText.innerText = `${bpm} bpm`;
+      heartbeatText.style.color = dist < 220 ? '#ff0033' : '#ffaa00';
+    }
+
+    if (dist < 320) {
+      robot.mode = 'stalk';
+      robot.speed = 1.9;
+      banner.style.display = 'block';
+      screenShake = Math.max(screenShake, (320 - dist) / 25);
+    } else {
+      banner.style.display = 'none';
+      robot.speed = 1.2;
+    }
+
+    const rtX = Math.floor(robot.x / TILE);
+    const rtY = Math.floor(robot.y / TILE);
+
+    if (robot.mode === 'stalk') {
+      const path = getPath({x: rtX, y: rtY}, {x: ptX, y: ptY});
+      if (path && path.length > 0) {
+        const next = path[0];
+        const tx = (next.x + 0.5) * TILE;
+        const ty = (next.y + 0.5) * TILE;
+        robot.angle = Math.atan2(ty - robot.y, tx - robot.x);
+      }
+    } else {
+      if (!robot.targetTile || (rtX === robot.targetTile.x && rtY === robot.targetTile.y)) {
+        const neighbors = [
+          {x: rtX+1, y: rtY}, {x: rtX-1, y: rtY},
+          {x: rtX, y: rtY+1}, {x: rtX, y: rtY-1}
+        ].filter(n => MAZE[n.y]?.[n.x] !== 1);
+        robot.targetTile = neighbors[Math.floor(Math.random() * neighbors.length)];
+      }
+      if (robot.targetTile) {
+        const tx = (robot.targetTile.x + 0.5) * TILE;
+        const ty = (robot.targetTile.y + 0.5) * TILE;
+        robot.angle = Math.atan2(ty - robot.y, tx - robot.x);
+      }
+    }
+
+    robot.x += Math.cos(robot.angle) * robot.speed;
+    robot.y += Math.sin(robot.angle) * robot.speed;
+
+    if (dist < 26) {
+      Sound.scream();
+      screenShake = 25;
+      player.x = player.checkpoint.x;
+      player.y = player.checkpoint.y;
+      robot.active = false;
+      banner.style.display = 'none';
+    }
+  } else {
+    banner.style.display = 'none';
+    heartbeatText.innerText = "75 bpm";
+    heartbeatText.style.color = "#00e676";
+  }
+
+  if (screenShake > 0) screenShake *= 0.85;
+}
+
+function drawScaryRobot(x, y, angle) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  const glow = ctx.createRadialGradient(0, 0, 10, 0, 0, 45);
+  glow.addColorStop(0, 'rgba(255, 0, 50, 0.6)');
+  glow.addColorStop(1, 'rgba(255, 0, 0, 0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(0, 0, 45, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(-10, -18); ctx.lineTo(15, -28);
+  ctx.moveTo(-10, 18); ctx.lineTo(15, 28);
+  ctx.stroke();
+
+  [-28, 28].forEach(sideY => {
+    ctx.save();
+    ctx.translate(15, sideY);
+    ctx.rotate(robot.sawRotation);
+    ctx.fillStyle = '#bbb';
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      ctx.lineTo(Math.cos(a) * 10, Math.sin(a) * 10);
+      ctx.lineTo(Math.cos(a + 0.3) * 5, Math.sin(a + 0.3) * 5);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  });
+
+  ctx.fillStyle = '#1c1d22';
+  ctx.fillRect(-18, -18, 36, 36);
+  ctx.strokeStyle = '#ff0033';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(-18, -18, 36, 36);
+
+  ctx.fillStyle = '#ff0000';
+  ctx.beginPath();
+  ctx.arc(4, 0, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffff00';
+  ctx.beginPath();
+  ctx.arc(6, 0, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function draw() {
+  ctx.save();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (screenShake > 0) {
+    ctx.translate((Math.random() - 0.5) * screenShake, (Math.random() - 0.5) * screenShake);
+  }
+
+  const camX = canvas.width / 2 - player.x;
+  const camY = canvas.height / 2 - player.y;
+  ctx.translate(camX, camY);
+
+  for (let r=0; r<MAP_H; r++) {
+    for (let c=0; c<MAP_W; c++) {
+      const type = MAZE[r][c];
+      const px = c * TILE;
+      const py = r * TILE;
+
+      if (type === 1) {
+        ctx.fillStyle = '#2c3545';
+        ctx.fillRect(px, py, TILE, TILE);
+        ctx.strokeStyle = '#1e2530';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(px + 1, py + 1, TILE - 2, TILE - 2);
+      } else {
+        ctx.fillStyle = '#eaf0f6';
+        ctx.fillRect(px, py, TILE, TILE);
+        ctx.strokeStyle = '#d3dce6';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px, py, TILE, TILE);
+
+        if (type === 3) {
+          if (portalUnlocked) {
+            const glowRadius = 24 + Math.sin(Date.now() / 150) * 6;
+            const grad = ctx.createRadialGradient(px + TILE/2, py + TILE/2, 5, px + TILE/2, py + TILE/2, glowRadius);
+            grad.addColorStop(0, '#00ffcc');
+            grad.addColorStop(1, 'rgba(0, 255, 204, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(px + TILE/2, py + TILE/2, glowRadius, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#00e676';
+            ctx.beginPath();
+            ctx.arc(px + TILE/2, py + TILE/2, 16, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.fillStyle = '#999';
+            ctx.beginPath();
+            ctx.arc(px + TILE/2, py + TILE/2, 16, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.font = '22px sans-serif';
+          ctx.fillText('🏆', px + 14, py + 34);
+        }
+      }
+    }
+  }
+
+  checkpoints.forEach(cp => {
+    const cx = (cp.x + 0.5) * TILE;
+    const cy = (cp.y + 0.5) * TILE;
+    ctx.fillStyle = cp.done ? '#00e676' : '#ffb700';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = '16px sans-serif';
+    ctx.fillText('🚩', cx - 8, cy + 6);
+  });
+
+  ctx.fillStyle = isGameCleared ? '#ffd700' : '#0070f3';
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  if (robot.active && !isGameCleared) {
+    drawScaryRobot(robot.x, robot.y, robot.angle);
+  }
+
+  confetti.forEach(p => {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate((p.rot * Math.PI) / 180);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+    ctx.restore();
+  });
+
+  ctx.restore();
+
+  update();
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>

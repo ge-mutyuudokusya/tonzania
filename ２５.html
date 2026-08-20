@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>NASA 3D Mars Base Launch Mission</title>
+<style>
+  body {
+    margin: 0;
+    overflow: hidden;
+    background-color: #000;
+    font-family: 'Courier New', monospace;
+    color: #00ffcc;
+    user-select: none;
+  }
+  #hud {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    display: flex;
+    justify-content: space-between;
+    background: rgba(5, 12, 25, 0.85);
+    padding: 10px 20px;
+    border: 1px solid #00ffcc;
+    font-size: 14px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  #msg-box {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.9);
+    border: 2px solid #00e5ff;
+    padding: 12px 25px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #ffea00;
+    text-align: center;
+    pointer-events: none;
+    z-index: 10;
+    max-width: 80%;
+  }
+</style>
+<!-- Three.js CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+<div id="hud">
+  <div>🚀 ざんき: <span id="lives-ui">❤️❤️❤️</span></div>
+  <div>ミッション: <span id="phase-ui">PHASE 1: 発射基地〜搭乗</span></div>
+  <div>ステータス/燃料: <span id="fuel-ui">100.0%</span></div>
+  <div>降下/移動速度: <span id="vel-ui">0.0 m/s</span></div>
+</div>
+
+<div id="msg-box">【↑ / ↓ / ← / →】基地を移動し、発射塔のエレベーターに乗ってロケットのハッチへ向かえ！</div>
+
+<script>
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 4000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+// ライティング
+const ambientLight = new THREE.AmbientLight(0x556677, 1.2);
+scene.add(ambientLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.6);
+dirLight.position.set(150, 300, 150);
+dirLight.castShadow = true;
+scene.add(dirLight);
+
+// 星背景
+const starGeo = new THREE.BufferGeometry();
+const starCount = 1200;
+const starPos = new Float32Array(starCount * 3);
+for(let i=0; i<starCount*3; i++) starPos[i] = (Math.random() - 0.5) * 3000;
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 2 }));
+scene.add(stars);
+
+// 地面
+const groundGeo = new THREE.PlaneGeometry(1500, 1500, 32, 32);
+const earthMat = new THREE.MeshStandardMaterial({ color: 0x1d381d, roughness: 0.8 });
+const marsMat = new THREE.MeshStandardMaterial({ color: 0x8a2c0e, roughness: 0.9, flatShading: true });
+const ground = new THREE.Mesh(groundGeo, earthMat);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// ゲームステート
+let phase = 1;
+let lives = 3;
+let fuel = 100;
+let respawnTimer = 0;
+
+// キー入力管理（矢印キーの画面スクロールを防止）
+const keys = {};
+window.addEventListener('keydown', e => {
+  if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) {
+    e.preventDefault();
+  }
+  keys[e.code] = true;
+});
+window.addEventListener('keyup', e => {
+  keys[e.code] = false;
+});
+
+// プレイヤー/ロケット/オブジェクト群
+let playerObj = new THREE.Group();
+scene.add(playerObj);
+
+let staticGroup = new THREE.Group();
+scene.add(staticGroup);
+
+let vel = new THREE.Vector3();
+let asteroids = [];
+
+function clearGroup(grp) {
+  while(grp.children.length > 0) grp.remove(grp.children[0]);
+}
+
+// 宇宙飛行士モデル
+function buildAstronaut() {
+  clearGroup(playerObj);
+  const suitMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.5 });
+  const visorMat = new THREE.MeshStandardMaterial({ color: 0xddaa00, metalness: 0.9, roughness: 0.1 });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.5), suitMat);
+  body.position.y = 1.0;
+  playerObj.add(body);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16), suitMat);
+  head.position.y = 1.9;
+  const visor = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 16), visorMat);
+  visor.position.set(0, 1.9, 0.2);
+  playerObj.add(head);
+  playerObj.add(visor);
+
+  const plss = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 0.3), new THREE.MeshStandardMaterial({ color: 0xcccccc }));
+  plss.position.set(0, 1.1, -0.35);
+  playerObj.add(plss);
+}
+
+// ロケットモデル
+function buildRocket(mounted = false) {
+  const grp = mounted ? new THREE.Group() : playerObj;
+  if (!mounted) clearGroup(playerObj);
+
+  const whiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.4 });
+  const redMat = new THREE.MeshStandardMaterial({ color: 0xd50000 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 18, 24), whiteMat);
+  body.position.y = 9;
+  grp.add(body);
+
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(1.6, 5, 24), redMat);
+  nose.position.y = 20.5;
+  grp.add(nose);
+
+  for(let i=0; i<4; i++) {
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.2, 3, 2), darkMat);
+    fin.position.set(Math.cos(i * Math.PI/2)*1.8, 1.5, Math.sin(i * Math.PI/2)*1.8);
+    fin.rotation.y = i * Math.PI/2;
+    grp.add(fin);
+  }
+
+  const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.3, 2, 16), darkMat);
+  nozzle.position.y = -0.5;
+  grp.add(nozzle);
+
+  return grp;
+}
+
+// 地球・発射基地
+function buildEarthBase() {
+  clearGroup(staticGroup);
+  
+  const padMat = new THREE.MeshStandardMaterial({ color: 0x444449 });
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry(12, 14, 2, 32), padMat);
+  pad.position.set(0, 1, 0);
+  staticGroup.add(pad);
+
+  const towerMat = new THREE.MeshStandardMaterial({ color: 0x883322 });
+  const tower = new THREE.Mesh(new THREE.BoxGeometry(4, 28, 4), towerMat);
+  tower.position.set(-6, 14, 0);
+  staticGroup.add(tower);
+
+  const armMat = new THREE.MeshStandardMaterial({ color: 0xdddddd });
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(5, 1.2, 2), armMat);
+  arm.position.set(-2.5, 20, 0);
+  staticGroup.add(arm);
+
+  const domeMat = new THREE.MeshStandardMaterial({ color: 0x88aacc, metalness: 0.4 });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(10, 24, 16, 0, Math.PI*2, 0, Math.PI/2), domeMat);
+  dome.position.set(40, 0, 40);
+  staticGroup.add(dome);
+
+  const rocketOnPad = buildRocket(true);
+  rocketOnPad.name = "padRocket";
+  rocketOnPad.position.set(0, 2, 0);
+  staticGroup.add(rocketOnPad);
+}
+
+// 火星基地
+function buildMarsBase() {
+  clearGroup(staticGroup);
+
+  const habMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.3 });
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x00ccff, metalness: 0.8, roughness: 0.2 });
+
+  const habitat = new THREE.Mesh(new THREE.SphereGeometry(14, 32, 16, 0, Math.PI*2, 0, Math.PI/2), habMat);
+  habitat.position.set(0, 0, 0);
+  staticGroup.add(habitat);
+
+  const pad = new THREE.Mesh(new THREE.CylinderGeometry(16, 18, 1.5, 32), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+  pad.position.set(0, 0.75, 60);
+  staticGroup.add(pad);
+
+  const dish = new THREE.Mesh(new THREE.SphereGeometry(3, 16, 16, 0, Math.PI*2, 0, Math.PI/3), glassMat);
+  dish.position.set(10, 16, 10);
+  dish.rotation.x = 0.5;
+  staticGroup.add(dish);
+}
+
+function updateHUD() {
+  let hearts = "";
+  for (let i = 0; i < lives; i++) hearts += "❤️";
+  for (let i = lives; i < 3; i++) hearts += "🖤";
+  document.getElementById('lives-ui').textContent = hearts;
+  document.getElementById('fuel-ui').textContent = `${Math.max(0, fuel).toFixed(1)}%`;
+  document.getElementById('vel-ui').textContent = `${vel.length().toFixed(1)} m/s`;
+}
+
+function triggerFail(reason) {
+  lives--;
+  updateHUD();
+  phase = 6;
+  respawnTimer = 110;
+  const msgBox = document.getElementById('msg-box');
+  if (lives <= 0) {
+    msgBox.textContent = `💀 ${reason} 【MISSION FAILED - GAME OVER】`;
+    msgBox.style.color = "#ff4444";
+  } else {
+    msgBox.textContent = `⚠️ 警告: ${reason} (残存機: ${lives})`;
+    msgBox.style.color = "#ffaa00";
+  }
+}
+
+function initPhase(p) {
+  phase = p;
+  vel.set(0, 0, 0);
+  playerObj.rotation.set(0, 0, 0);
+  asteroids.forEach(a => scene.remove(a));
+  asteroids = [];
+
+  const msgBox = document.getElementById('msg-box');
+  msgBox.style.color = "#ffea00";
+
+  if (phase === 1) {
+    ground.material = earthMat;
+    ground.position.y = 0;
+    buildEarthBase();
+    buildAstronaut();
+    playerObj.position.set(30, 0, 30);
+    document.getElementById('phase-ui').textContent = "PHASE 1: 発射基地〜搭乗";
+    msgBox.textContent = "【↑ / ↓ / ← / →】発射塔（赤い鉄塔）のエレベーターへ向かい、上層ハッチへ乗り込め！";
+  } else if (phase === 2) {
+    buildRocket(false);
+    clearGroup(staticGroup);
+    buildEarthBase();
+    const padR = staticGroup.getObjectByName("padRocket");
+    if (padR) staticGroup.remove(padR);
+
+    playerObj.position.set(0, 2, 0);
+    fuel = 100;
+    document.getElementById('phase-ui').textContent = "PHASE 2: メインエンジン点火・打ち上げ";
+    msgBox.textContent = "【SPACE】推力噴射 / 【↑ / ↓ / ← / →】姿勢制御。高度800m突破で惑星間軌道へ！";
+  } else if (phase === 3) {
+    buildRocket(false);
+    clearGroup(staticGroup);
+    ground.position.y = -99999;
+    playerObj.position.set(0, 0, 0);
+    fuel = 100;
+    document.getElementById('phase-ui').textContent = "PHASE 3: 惑星間クルーズ・デブリ回避";
+    msgBox.textContent = "【↑ / ↓ / ← / →】3D推進。デブリ地帯を突破して火星軌道へ突入せよ！";
+    for(let i=0; i<35; i++) {
+      const ast = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(3.5 + Math.random()*4),
+        new THREE.MeshStandardMaterial({ color: 0x776655, roughness: 0.9 })
+      );
+      ast.position.set((Math.random()-0.5)*90, (Math.random()-0.5)*70, -120 - i * 40);
+      scene.add(ast);
+      asteroids.push(ast);
+    }
+  } else if (phase === 4) {
+    buildRocket(false);
+    ground.material = marsMat;
+    ground.position.y = 0;
+    buildMarsBase();
+    playerObj.position.set(0, 350, 60);
+    fuel = 100;
+    document.getElementById('phase-ui').textContent = "PHASE 4: 火星基地ランディングパッド着陸";
+    msgBox.textContent = "【SPACE】逆噴射 / 【↑ / ↓ / ← / →】位置調整。火星基地の着陸パッドへ時速4m/s未満で接地！";
+  } else if (phase === 5) {
+    buildAstronaut();
+    playerObj.position.set(0, 0, 50);
+    document.getElementById('phase-ui').textContent = "PHASE 5: 火星基地到着・ミッションコンプリート";
+    msgBox.textContent = "🏆 火星基地に無事到着！【↑ / ↓ / ← / →】居住ドームへエントリーしよう！";
+  }
+}
+
+initPhase(1);
+
+// アニメーションループ
+function animate() {
+  requestAnimationFrame(animate);
+
+  if (phase === 6) {
+    respawnTimer--;
+    if (respawnTimer <= 0 && lives > 0) {
+      initPhase(phase === 6 ? 2 : phase);
+    }
+    renderer.render(scene, camera);
+    return;
+  }
+
+  // PHASE 1: 基地内移動＆搭乗
+  if (phase === 1) {
+    if (keys['ArrowLeft'] || keys['KeyA']) playerObj.rotation.y += 0.05;
+    if (keys['ArrowRight'] || keys['KeyD']) playerObj.rotation.y -= 0.05;
+
+    let moveSpeed = 0;
+    if (keys['ArrowUp'] || keys['KeyW']) moveSpeed = -0.4;
+    if (keys['ArrowDown'] || keys['KeyS']) moveSpeed = 0.2;
+
+    const moveDir = new THREE.Vector3(0, 0, moveSpeed).applyEuler(playerObj.rotation);
+    playerObj.position.add(moveDir);
+
+    if (Math.hypot(playerObj.position.x - (-6), playerObj.position.z) < 3.5 && playerObj.position.y < 20) {
+      playerObj.position.y += 0.25;
+      document.getElementById('msg-box').textContent = "🛗 エレベーター上昇中... 搭乗ブリッジへ移動中";
+    }
+
+    if (playerObj.position.y >= 19.5 && Math.hypot(playerObj.position.x, playerObj.position.z) < 2.5) {
+      initPhase(2);
+    }
+
+    const camOffset = new THREE.Vector3(0, 3, 8).applyEuler(playerObj.rotation);
+    camera.position.copy(playerObj.position).add(camOffset);
+    camera.lookAt(playerObj.position.x, playerObj.position.y + 1.5, playerObj.position.z);
+  }
+
+  // PHASE 2: 打ち上げ
+  else if (phase === 2) {
+    vel.y -= 0.09;
+
+    if (keys['ArrowUp'] || keys['KeyW']) playerObj.rotation.x -= 0.02;
+    if (keys['ArrowDown'] || keys['KeyS']) playerObj.rotation.x += 0.02;
+    if (keys['ArrowLeft'] || keys['KeyA']) playerObj.rotation.z += 0.02;
+    if (keys['ArrowRight'] || keys['KeyD']) playerObj.rotation.z -= 0.02;
+
+    if (keys['Space'] && fuel > 0) {
+      const thrust = new THREE.Vector3(0, 1, 0).applyEuler(playerObj.rotation);
+      vel.add(thrust.multiplyScalar(0.24));
+      fuel -= 0.12;
+    }
+
+    vel.multiplyScalar(0.98);
+    playerObj.position.add(vel);
+
+    if (playerObj.position.y < 2) {
+      playerObj.position.y = 2;
+      if (vel.y < -3.5) triggerFail("発射台に墜落");
+      vel.set(0, 0, 0);
+    }
+
+    camera.position.set(playerObj.position.x, playerObj.position.y + 10, playerObj.position.z + 35);
+    camera.lookAt(playerObj.position);
+
+    if (playerObj.position.y >= 800) initPhase(3);
+  }
+
+  // PHASE 3: 宇宙航行
+  else if (phase === 3) {
+    if (keys['ArrowUp'] || keys['KeyW']) vel.y += 0.25;
+    if (keys['ArrowDown'] || keys['KeyS']) vel.y -= 0.25;
+    if (keys['ArrowLeft'] || keys['KeyA']) vel.x -= 0.25;
+    if (keys['ArrowRight'] || keys['KeyD']) vel.x += 0.25;
+
+    vel.multiplyScalar(0.90);
+    playerObj.position.add(vel);
+    playerObj.position.x = Math.max(-40, Math.min(40, playerObj.position.x));
+    playerObj.position.y = Math.max(-30, Math.min(30, playerObj.position.y));
+
+    camera.position.set(0, 0, 35);
+    camera.lookAt(0, 0, -50);
+
+    let cleared = true;
+    asteroids.forEach(a => {
+      a.position.z += 2.0;
+      a.rotation.x += 0.02;
+      a.rotation.y += 0.02;
+      if (a.position.z < 40) cleared = false;
+      if (a.position.distanceTo(playerObj.position) < 5.0) {
+        triggerFail("アステロイド直撃");
+      }
+    });
+
+    if (cleared) initPhase(4);
+  }
+
+  // PHASE 4: 火星基地着陸
+  else if (phase === 4) {
+    vel.y -= 0.06;
+
+    if (keys['ArrowUp'] || keys['KeyW']) vel.z -= 0.06;
+    if (keys['ArrowDown'] || keys['KeyS']) vel.z += 0.06;
+    if (keys['ArrowLeft'] || keys['KeyA']) vel.x -= 0.06;
+    if (keys['ArrowRight'] || keys['KeyD']) vel.x += 0.06;
+
+    if (keys['Space'] && fuel > 0) {
+      vel.y += 0.15;
+      fuel -= 0.2;
+    }
+
+    vel.x *= 0.97;
+    vel.z *= 0.97;
+    playerObj.position.add(vel);
+
+    camera.position.set(playerObj.position.x, playerObj.position.y + 15, playerObj.position.z + 40);
+    camera.lookAt(playerObj.position);
+
+    if (playerObj.position.y <= 2.0) {
+      playerObj.position.y = 2.0;
+      const onPad = Math.hypot(playerObj.position.x, playerObj.position.z - 60) < 15;
+      if (Math.abs(vel.y) <= 3.8 && onPad) {
+        initPhase(5);
+      } else {
+        triggerFail(onPad ? "着陸速度超過による大破" : "パッド外の岩礁地帯へ激突");
+      }
+    }
+  }
+
+  // PHASE 5: 火星基地エントリー
+  else if (phase === 5) {
+    if (keys['ArrowLeft'] || keys['KeyA']) playerObj.rotation.y += 0.05;
+    if (keys['ArrowRight'] || keys['KeyD']) playerObj.rotation.y -= 0.05;
+
+    let moveSpeed = 0;
+    if (keys['ArrowUp'] || keys['KeyW']) moveSpeed = -0.35;
+    if (keys['ArrowDown'] || keys['KeyS']) moveSpeed = 0.2;
+
+    const moveDir = new THREE.Vector3(0, 0, moveSpeed).applyEuler(playerObj.rotation);
+    playerObj.position.add(moveDir);
+
+    const camOffset = new THREE.Vector3(0, 4, 10).applyEuler(playerObj.rotation);
+    camera.position.copy(playerObj.position).add(camOffset);
+    camera.lookAt(playerObj.position.x, playerObj.position.y + 1.5, playerObj.position.z);
+
+    if (Math.hypot(playerObj.position.x, playerObj.position.z) < 14) {
+      document.getElementById('msg-box').textContent = "🎉 MISSION COMPLETE: 火星基地コロニーへ入城しました！";
+    }
+  }
+
+  updateHUD();
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
+</script>
+</body>
+</html>

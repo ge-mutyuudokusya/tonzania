@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>本格リアル釣りゲーム</title>
+<style>
+  body {
+    background: #0f1c2e;
+    color: #fff;
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+    user-select: none;
+  }
+  h1 { margin: 8px 0; color: #4cd137; font-size: 22px; }
+  #gameCanvas {
+    background: #000;
+    border: 3px solid #334e68;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+  }
+  .guide {
+    margin-top: 10px;
+    font-size: 13px;
+    background: #102a43;
+    padding: 8px 16px;
+    border-radius: 20px;
+    color: #d9e2ec;
+  }
+  .key {
+    background: #f0f4f8;
+    color: #102a43;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<h1>🎣 リアルフィッシングワールド</h1>
+<canvas id="gameCanvas" width="640" height="420"></canvas>
+<div class="guide">
+  操作：<span class="key">スペース</span> または <span class="key">画面クリック</span> で決定・キャスト・アワセ・リール巻き / <span class="key">←</span> <span class="key">→</span> で竿をいなす
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const stages = [
+  {
+    name: '🏞️ 湖（みずうみ）',
+    desc: '穏やかな水面。トラウトたちの生息地。',
+    sky: '#62B6CB',
+    water: '#1B4965',
+    fish: [
+      { name: 'ウグイ', rarity: '★☆☆', minSize: 15, maxSize: 28, hp: 60, icon: '🐟', speed: 1.0 },
+      { name: 'ニジマス', rarity: '★★☆', minSize: 30, maxSize: 60, hp: 110, icon: '🐟', speed: 1.5 },
+      { name: 'ブラウントラウト', rarity: '★★★', minSize: 45, maxSize: 80, hp: 180, icon: '🐠', speed: 1.8 }
+    ]
+  },
+  {
+    name: '🌿 川（かわ）',
+    desc: '流れのある川。いろいろな生き物が潜む。',
+    sky: '#72EFDD',
+    water: '#006D77',
+    fish: [
+      { name: 'エビ', rarity: '★☆☆', minSize: 5, maxSize: 12, hp: 35, icon: '🦐', speed: 0.8 },
+      { name: 'ブラックバス', rarity: '★★☆', minSize: 25, maxSize: 55, hp: 120, icon: '🐟', speed: 2.0 },
+      { name: '鯉（コイ）', rarity: '★★☆', minSize: 40, maxSize: 80, hp: 190, icon: '🐟', speed: 1.2 },
+      { name: '亀（カメ）', rarity: '★★☆', minSize: 15, maxSize: 30, hp: 150, icon: '🐢', speed: 0.6 },
+      { name: '錦鯉（ニシキゴイ）', rarity: '★★★', minSize: 50, maxSize: 90, hp: 220, icon: '✨', speed: 1.6 }
+    ]
+  },
+  {
+    name: '🌊 河川（かせん）',
+    desc: '下流の深場。幻の巨大魚が眠る。',
+    sky: '#F4A261',
+    water: '#264653',
+    fish: [
+      { name: '幻の巨大魚 イトウ', rarity: '★★★★★', minSize: 85, maxSize: 150, hp: 350, icon: '🐉', speed: 2.5 }
+    ]
+  }
+];
+
+let state = 'STAGE_SELECT'; // STAGE_SELECT, CASTING, WAITING, FIGHT, RESULT
+let selectedStage = 0;
+let curStage = stages[0];
+
+let castPower = 0;
+let castDir = 1;
+
+let waitTimer = 0;
+let isNibble = false;
+let isHit = false;
+let floatYOffset = 0;
+
+let currentFish = null;
+let fishHp = 100, fishMaxHp = 100;
+let fishDist = 100;
+let tension = 50; // 0〜100
+let fishRage = false;
+let fishRageTimer = 0;
+let fishDir = 0; // -1: 左, 1: 右
+let playerRodDir = 0;
+let isReeling = false;
+let resultText = "";
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    handleAction();
+  }
+  if (state === 'STAGE_SELECT') {
+    if (e.code === 'ArrowUp') selectedStage = (selectedStage - 1 + stages.length) % stages.length;
+    if (e.code === 'ArrowDown') selectedStage = (selectedStage + 1) % stages.length;
+  }
+  if (e.code === 'ArrowLeft') playerRodDir = -1;
+  if (e.code === 'ArrowRight') playerRodDir = 1;
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') isReeling = false;
+  if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') playerRodDir = 0;
+});
+
+canvas.addEventListener('mousedown', () => handleAction());
+window.addEventListener('mouseup', () => { isReeling = false; });
+
+function handleAction() {
+  if (state === 'STAGE_SELECT') {
+    curStage = stages[selectedStage];
+    state = 'CASTING';
+    castPower = 0;
+  } else if (state === 'CASTING') {
+    state = 'WAITING';
+    const list = curStage.fish;
+    const base = list[Math.floor(Math.random() * list.length)];
+    const size = Math.floor(Math.random() * (base.maxSize - base.minSize + 1) + base.minSize);
+    currentFish = {
+      ...base,
+      size: size,
+      weight: ((size ** 2) * 0.003).toFixed(2),
+      maxHp: base.hp + size
+    };
+    waitTimer = 100 + Math.random() * 140;
+    isNibble = false;
+    isHit = false;
+  } else if (state === 'WAITING') {
+    if (isHit) {
+      state = 'FIGHT';
+      fishHp = currentFish.maxHp;
+      fishMaxHp = currentFish.maxHp;
+      fishDist = 70 + Math.floor(castPower * 0.4);
+      tension = 50;
+      fishRage = false;
+      fishRageTimer = 60;
+    } else if (isNibble) {
+      state = 'RESULT';
+      resultText = '⚠️ 早合わせ！エサだけ取られて逃げられた...';
+    }
+  } else if (state === 'FIGHT') {
+    isReeling = true;
+  } else if (state === 'RESULT') {
+    state = 'STAGE_SELECT';
+  }
+}
+
+function update() {
+  if (state === 'CASTING') {
+    castPower += 2.5 * castDir;
+    if (castPower >= 100 || castPower <= 0) castDir *= -1;
+  } else if (state === 'WAITING') {
+    waitTimer--;
+    if (waitTimer <= 60 && waitTimer > 0) {
+      isNibble = true;
+      floatYOffset = Math.sin(Date.now() / 70) * 3;
+    }
+    if (waitTimer <= 0) {
+      isNibble = false;
+      isHit = true;
+      floatYOffset = 16;
+      if (waitTimer < -80) {
+        state = 'RESULT';
+        resultText = '💨 アワセ遅れ！魚が逃げてしまった...';
+      }
+    }
+  } else if (state === 'FIGHT') {
+    fishRageTimer--;
+    if (fishRageTimer <= 0) {
+      fishRage = !fishRage;
+      fishRageTimer = fishRage ? (40 + Math.random() * 50) : (60 + Math.random() * 60);
+      fishDir = Math.random() < 0.5 ? -1 : 1;
+    }
+
+    if (isReeling) {
+      tension += fishRage ? (1.5 * currentFish.speed) : 0.8;
+      if (!fishRage) {
+        fishHp -= 0.7;
+        fishDist -= 0.45;
+      }
+    } else {
+      tension -= 0.6;
+    }
+
+    if (fishDir !== 0 && playerRodDir !== 0) {
+      if (fishDir !== playerRodDir) {
+        fishHp -= 0.4;
+        tension -= 0.2;
+      } else {
+        tension += 0.5;
+      }
+    }
+
+    if (tension >= 100) {
+      state = 'RESULT';
+      resultText = '💥【ラインブレイク！】糸が切れてしまった！';
+    } else if (tension <= 0) {
+      state = 'RESULT';
+      resultText = '🪝【フックアウト！】針を外されて逃げられた！';
+    } else if (fishDist <= 0 || fishHp <= 0) {
+      state = 'RESULT';
+      resultText = `🎉【釣り上げ成功！】\n${currentFish.icon} ${currentFish.name} (${currentFish.rarity})\n全長: ${currentFish.size}cm / 重さ: ${currentFish.weight}kg`;
+    }
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = curStage.sky;
+  ctx.fillRect(0, 0, canvas.width, 170);
+  ctx.fillStyle = curStage.water;
+  ctx.fillRect(0, 170, canvas.width, 250);
+
+  // 釣り人
+  ctx.fillStyle = '#f6d365';
+  ctx.beginPath();
+  ctx.arc(60, 130, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#1e3799';
+  ctx.fillRect(52, 142, 16, 28);
+
+  // 竿
+  let rodX = 140 + playerRodDir * 20;
+  let rodY = 70;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(68, 145);
+  ctx.lineTo(rodX, rodY);
+  ctx.stroke();
+
+  if (state === 'STAGE_SELECT') {
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillRect(50, 30, 540, 360);
+    ctx.fillStyle = '#4cd137';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText('釣りたいステージを選んでください', 160, 70);
+
+    stages.forEach((st, idx) => {
+      let y = 110 + idx * 75;
+      let sel = (idx === selectedStage);
+      ctx.fillStyle = sel ? 'rgba(76,209,55,0.2)' : 'rgba(255,255,255,0.05)';
+      ctx.strokeStyle = sel ? '#4cd137' : '#57606f';
+      ctx.fillRect(80, y, 480, 60);
+      ctx.strokeRect(80, y, 480, 60);
+
+      ctx.fillStyle = sel ? '#fbc531' : '#fff';
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillText(`${sel ? '▶ ' : '   '}${st.name}`, 100, y + 26);
+      ctx.fillStyle = '#ccc';
+      ctx.font = '13px sans-serif';
+      ctx.fillText(st.desc, 125, y + 48);
+    });
+
+    ctx.fillStyle = '#00d2d3';
+    ctx.font = '14px sans-serif';
+    ctx.fillText('【↑ / ↓】選択 【スペース / クリック】決定', 170, 365);
+  } 
+  else if (state === 'CASTING') {
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText('パワーを決めてキャスト！', 220, 50);
+
+    ctx.fillStyle = '#222';
+    ctx.fillRect(170, 70, 300, 20);
+    ctx.fillStyle = '#e84118';
+    ctx.fillRect(170, 70, castPower * 3, 20);
+  } 
+  else if (state === 'WAITING') {
+    let fx = 350 + castPower * 1.5;
+    let fy = 180 + floatYOffset;
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(rodX, rodY);
+    ctx.lineTo(fx, fy);
+    ctx.stroke();
+
+    ctx.fillStyle = '#e84118';
+    ctx.beginPath();
+    ctx.arc(fx, fy, 7, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (isHit) {
+      ctx.fillStyle = '#ff4757';
+      ctx.font = 'bold 36px sans-serif';
+      ctx.fillText('❗ HIT ❗', fx - 40, fy - 25);
+    } else if (isNibble) {
+      ctx.fillStyle = '#fbc531';
+      ctx.font = '18px sans-serif';
+      ctx.fillText('ツンツン...（まだ待て！）', 220, 50);
+    } else {
+      ctx.fillStyle = '#fff';
+      ctx.font = '16px sans-serif';
+      ctx.fillText('魚を待っています...', 240, 50);
+    }
+  } 
+  else if (state === 'FIGHT') {
+    let fishX = 380 + (fishDir * 50);
+    let fishY = 240;
+
+    ctx.strokeStyle = (tension > 80 || tension < 20) ? '#e84118' : '#fff';
+    ctx.lineWidth = (tension > 80) ? 3 : 1.5;
+    ctx.beginPath();
+    ctx.moveTo(rodX, rodY);
+    ctx.lineTo(fishX, fishY);
+    ctx.stroke();
+
+    ctx.font = '22px sans-serif';
+    ctx.fillText(currentFish.icon, fishX - 10, fishY + 8);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillText(`ターゲット: ${currentFish.name}`, 20, 30);
+    ctx.fillText(`残り距離: ${Math.max(0, Math.floor(fishDist))}m`, 20, 52);
+
+    ctx.fillStyle = fishRage ? '#ff4757' : '#4cd137';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(fishRage ? `⚠️ 魚が暴れている！(${fishDir < 0 ? '← 左' : '右 →'}) リールを離せ！` : 'チャンス！リールを巻け！', 180, 40);
+
+    // テンションメーター
+    ctx.fillStyle = '#222';
+    ctx.fillRect(170, 350, 300, 20);
+    ctx.fillStyle = '#4cd137';
+    ctx.fillRect(230, 350, 180, 20);
+
+    let needleColor = (tension > 80) ? '#e84118' : (tension < 20 ? '#00a8ff' : '#fbc531');
+    ctx.fillStyle = needleColor;
+    ctx.fillRect(170 + (tension * 3) - 4, 345, 8, 30);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('糸の張り具合（緑をキープ）', 250, 340);
+  } 
+  else if (state === 'RESULT') {
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillRect(60, 50, 520, 320);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 18px sans-serif';
+    let lines = resultText.split('\n');
+    lines.forEach((l, i) => {
+      ctx.fillStyle = resultText.includes('成功') ? '#fbc531' : '#ff4757';
+      ctx.fillText(l, 90, 130 + i * 36);
+    });
+
+    ctx.fillStyle = '#00d2d3';
+    ctx.font = '15px sans-serif';
+    ctx.fillText('クリック または スペースキー で次へ', 180, 310);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

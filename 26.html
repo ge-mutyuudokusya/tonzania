@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>サイエンス・クエスト 〜科学の力で世界を救え〜</title>
+<style>
+  :root {
+    --bg-dark: #0f172a;
+    --card-bg: #1e293b;
+    --accent: #38bdf8;
+    --accent-hover: #0284c7;
+    --player-hp: #22c55e;
+    --enemy-hp: #ef4444;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+  }
+
+  * {
+    box-sizing: border-box;
+    user-select: none;
+  }
+
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: radial-gradient(circle at center, #1e293b, #090d16);
+    color: var(--text-main);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    padding: 16px;
+  }
+
+  .game-wrapper {
+    background-color: var(--card-bg);
+    border: 2px solid #334155;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 600px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ヘッダー・ステータス */
+  .game-header {
+    background: rgba(15, 23, 42, 0.8);
+    padding: 12px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #334155;
+    font-weight: bold;
+  }
+
+  .stage-badge {
+    background: #475569;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    color: #38bdf8;
+  }
+
+  /* バトル画面エリア */
+  .battle-field {
+    padding: 30px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    min-height: 220px;
+    justify-content: center;
+  }
+
+  .enemy-sprite-container {
+    position: relative;
+    margin-bottom: 15px;
+  }
+
+  .enemy-sprite {
+    font-size: 80px;
+    display: inline-block;
+    filter: drop-shadow(0 0 15px rgba(56, 189, 248, 0.4));
+    transition: transform 0.2s;
+  }
+
+  /* アニメーション用クラス */
+  .shake {
+    animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+  }
+  .attack-effect {
+    animation: attack 0.3s ease-in-out;
+  }
+
+  @keyframes shake {
+    10%, 90% { transform: translate3d(-4px, 0, 0); }
+    20%, 80% { transform: translate3d(6px, 0, 0); }
+    30%, 50%, 70% { transform: translate3d(-8px, 0, 0); }
+    40%, 60% { transform: translate3d(8px, 0, 0); }
+  }
+
+  @keyframes attack {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.3) rotate(5deg); }
+    100% { transform: scale(1); }
+  }
+
+  /* ステータスバー（敵・プレイヤー共通） */
+  .status-board {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    padding: 0 10px;
+  }
+
+  .unit-card {
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid #334155;
+    padding: 10px 14px;
+    border-radius: 8px;
+  }
+
+  .unit-title {
+    font-size: 13px;
+    color: var(--text-muted);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .unit-name {
+    font-size: 15px;
+    font-weight: bold;
+    margin: 4px 0 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .bar-container {
+    background: #0f172a;
+    border-radius: 6px;
+    height: 12px;
+    overflow: hidden;
+    border: 1px solid #475569;
+  }
+
+  .bar-fill {
+    height: 100%;
+    transition: width 0.4s ease;
+  }
+
+  .enemy-bar { background: linear-gradient(90deg, #f87171, #ef4444); }
+  .player-bar { background: linear-gradient(90deg, #4ade80, #22c55e); }
+
+  /* コマンド・メッセージエリア */
+  .interaction-panel {
+    background: #0f172a;
+    padding: 20px;
+    border-top: 1px solid #334155;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .log-box {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 70px;
+    color: #e2e8f0;
+  }
+
+  .action-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .btn {
+    background: #334155;
+    color: var(--text-main);
+    border: 1px solid #475569;
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .btn:hover:not(:disabled) {
+    background: var(--accent-hover);
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-item-name {
+    font-weight: bold;
+    font-size: 14px;
+  }
+
+  .btn-item-desc {
+    font-size: 11px;
+    color: #cbd5e1;
+  }
+
+  .next-btn {
+    grid-column: span 2;
+    text-align: center;
+    background: #0284c7;
+    font-weight: bold;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="game-wrapper">
+  <!-- ヘッダー -->
+  <div class="game-header">
+    <span>🔬 SCIENCE QUEST</span>
+    <span class="stage-badge" id="stage-badge">STAGE 1 / 4</span>
+  </div>
+
+  <!-- フィールド -->
+  <div class="battle-field">
+    <div class="enemy-sprite-container">
+      <div class="enemy-sprite" id="enemy-sprite">🧊</div>
+    </div>
+
+    <!-- ステータス -->
+    <div class="status-board">
+      <div class="unit-card">
+        <div class="unit-title"><span>PLAYER</span><span id="player-hp-text">100/100</span></div>
+        <div class="unit-name">見習い科学者</div>
+        <div class="bar-container">
+          <div class="bar-fill player-bar" id="player-hp-bar" style="width: 100%;"></div>
+        </div>
+      </div>
+      <div class="unit-card">
+        <div class="unit-title"><span>ENEMY</span><span id="enemy-hp-text">100/100</span></div>
+        <div class="unit-name" id="enemy-name">氷晶のゴーレム</div>
+        <div class="bar-container">
+          <div class="bar-fill enemy-bar" id="enemy-hp-bar" style="width: 100%;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 下部操作パネル -->
+  <div class="interaction-panel">
+    <div class="log-box" id="log-box">
+      敵が現れた！どの科学コマンド（攻撃）を選択する？
+    </div>
+
+    <div class="action-grid" id="action-grid">
+      <!-- ボタンが動的に生成されます -->
+    </div>
+  </div>
+</div>
+
+<script>
+const stages = [
+  {
+    name: "絶対零度のゴーレム",
+    sprite: "🧊",
+    intro: "敵の身体はカチカチの分厚い氷で覆われており、打撃が効かない！",
+    enemyAttackName: "ダイヤモンドダスト",
+    enemyDamage: 25,
+    commands: [
+      {
+        name: "凸レンズ照射",
+        desc: "太陽光を1点に集束させる",
+        correct: true,
+        damage: 100,
+        log: "【大成功！】凸レンズで太陽の光を集め、焦点の温度を急上昇させた！氷が一瞬で蒸発した！"
+      },
+      {
+        name: "食塩を散布する",
+        desc: "凝固点降下を狙う",
+        correct: false,
+        damage: 20,
+        log: "【効果はいまひとつ】凝固点は下がったが、氷全体を溶かすには量が足りない！"
+      },
+      {
+        name: "ドライアイス投擲",
+        desc: "マイナス78.5℃の冷却弾",
+        correct: false,
+        damage: 0,
+        log: "【無効！】さらに冷却されてゴーレムの氷が硬化してしまった！"
+      },
+      {
+        name: "日傘で影を作る",
+        desc: "直射日光を遮断する",
+        correct: false,
+        damage: 0,
+        log: "【ミス】気温が下がり、ゴーレムが元気になってしまった！"
+      }
+    ]
+  },
+  {
+    name: "暴走するアイアン・コア",
+    sprite: "⚙️",
+    intro: "鉄と磁石でできた暴走コアが電磁シールドを張りながら突進してくる！",
+    enemyAttackName: "メタル・タックル",
+    enemyDamage: 30,
+    commands: [
+      {
+        name: "水を放射する",
+        desc: "酸化還元反応を促す",
+        correct: false,
+        damage: 10,
+        log: "【効果が遅い！】サビが発生するのには時間がかかりすぎる！"
+      },
+      {
+        name: "電磁石トラップ",
+        desc: "コイルに大電流を流す",
+        correct: true,
+        damage: 100,
+        log: "【大成功！】強力な電磁石を起動！強磁性体の鉄コアが引き寄せられ完全に捕獲された！"
+      },
+      {
+        name: "ゴム板を投げる",
+        desc: "絶縁体で覆う",
+        correct: false,
+        damage: 15,
+        log: "【効果薄】電気は防げたが、突進の物理的パワーを止められない！"
+      },
+      {
+        name: "空気を吹きかける",
+        desc: "風圧で押し返す",
+        correct: false,
+        damage: 0,
+        log: "【無効】質量が大きすぎてビクともしない！"
+      }
+    ]
+  },
+  {
+    name: "侵蝕のバイオプラント",
+    sprite: "🥀",
+    intro: "周囲の光を吸収し、急速な光合成で無限に細胞再生を繰り返している！",
+    enemyAttackName: "ソーラー・ビーム",
+    enemyDamage: 35,
+    commands: [
+      {
+        name: "炭酸水を散布",
+        desc: "二酸化炭素を補給する",
+        correct: false,
+        damage: 0,
+        log: "【逆効果！】光合成の原料（CO2と水）を与えてしまい、超回復された！"
+      },
+      {
+        name: "遮光ブラックシート",
+        desc: "全波長の光を100%カット",
+        correct: true,
+        damage: 100,
+        log: "【大成功！】明反応が完全停止！葉緑体がエネルギーを生産できず枯死した！"
+      },
+      {
+        name: "肥料を大量投与",
+        desc: "窒素・リン酸・カリウム",
+        correct: false,
+        damage: 10,
+        log: "【耐えられた】成長速度が上がってしまった！"
+      },
+      {
+        name: "純水を吹きかける",
+        desc: "水分を補給",
+        correct: false,
+        damage: 0,
+        log: "【ミス】根からぐんぐん水を吸い上げて活性化してしまった！"
+      }
+    ]
+  },
+  {
+    name: "灼熱のマグマ・キメラ",
+    sprite: "🔥",
+    intro: "激しい酸化燃焼反応（炎）を全身から噴出させている！",
+    enemyAttackName: "インフェルノ・ブレス",
+    enemyDamage: 40,
+    commands: [
+      {
+        name: "うちわで強風を起こす",
+        desc: "気流で吹き飛ばす",
+        correct: false,
+        damage: 0,
+        log: "【大失敗！】新鮮な酸素を送り込んでしまい、火力がさらに爆発した！"
+      },
+      {
+        name: "二酸化炭素ガス充填",
+        desc: "酸素濃度を限界まで下げる",
+        correct: true,
+        damage: 100,
+        log: "【大成功！】燃焼の3要素（酸素・可燃物・温度）のうち酸素を遮断し、完全消火に成功！"
+      },
+      {
+        name: "少量の水をかける",
+        desc: "冷却を試みる",
+        correct: false,
+        damage: 10,
+        log: "【失敗】水蒸気爆発を起こしてダメージを反射された！"
+      },
+      {
+        name: "紙吹雪を撒く",
+        desc: "視界を奪う",
+        correct: false,
+        damage: 0,
+        log: "【逆効果！】新たな燃料となって炎が巨大化した！"
+      }
+    ]
+  }
+];
+
+let currentStage = 0;
+let playerHp = 100;
+let enemyHp = 100;
+let isBusy = false;
+
+const logBox = document.getElementById("log-box");
+const actionGrid = document.getElementById("action-grid");
+const stageBadge = document.getElementById("stage-badge");
+const enemySprite = document.getElementById("enemy-sprite");
+const enemyName = document.getElementById("enemy-name");
+const enemyHpBar = document.getElementById("enemy-hp-bar");
+const enemyHpText = document.getElementById("enemy-hp-text");
+const playerHpBar = document.getElementById("player-hp-bar");
+const playerHpText = document.getElementById("player-hp-text");
+
+function initStage() {
+  const stage = stages[currentStage];
+  enemyHp = 100;
+  isBusy = false;
+
+  stageBadge.innerText = `STAGE ${currentStage + 1} / ${stages.length}`;
+  enemyName.innerText = stage.name;
+  enemySprite.innerText = stage.sprite;
+  
+  updateBars();
+  setLog(`${stage.name} が出現した！<br>${stage.intro}`);
+  renderButtons(stage.commands);
+}
+
+function updateBars() {
+  enemyHpBar.style.width = Math.max(0, enemyHp) + "%";
+  enemyHpText.innerText = `${Math.max(0, enemyHp)}/100`;
+
+  playerHpBar.style.width = Math.max(0, playerHp) + "%";
+  playerHpText.innerText = `${Math.max(0, playerHp)}/100`;
+
+  if (playerHp < 30) {
+    playerHpBar.style.background = "#ef4444";
+  }
+}
+
+function setLog(text) {
+  logBox.innerHTML = text;
+}
+
+function renderButtons(commands) {
+  actionGrid.innerHTML = "";
+  commands.forEach((cmd, idx) => {
+    const btn = document.createElement("button");
+    btn.className = "btn";
+    btn.innerHTML = `<span class="btn-item-name">${cmd.name}</span><span class="btn-item-desc">${cmd.desc}</span>`;
+    btn.onclick = () => handlePlayerAction(cmd);
+    actionGrid.appendChild(btn);
+  });
+}
+
+function triggerShake(element) {
+  element.classList.remove("shake");
+  void element.offsetWidth; // リフロー発生
+  element.classList.add("shake");
+}
+
+function handlePlayerAction(cmd) {
+  if (isBusy) return;
+  isBusy = true;
+
+  // プレイヤーのアクション
+  setLog(`科学コマンド【${cmd.name}】を実行！`);
+  
+  setTimeout(() => {
+    enemyHp -= cmd.damage;
+    if (cmd.damage > 0) {
+      triggerShake(enemySprite);
+    }
+    updateBars();
+    setLog(cmd.log);
+
+    if (enemyHp <= 0) {
+      // 敵撃破
+      setTimeout(() => {
+        if (currentStage + 1 < stages.length) {
+          showNextStageButton();
+        } else {
+          showGameClear();
+        }
+      }, 1500);
+    } else {
+      // 敵の反撃ターン
+      setTimeout(enemyTurn, 1800);
+    }
+  }, 800);
+}
+
+function enemyTurn() {
+  const stage = stages[currentStage];
+  setLog(`${stage.name}の反撃！『${stage.enemyAttackName}』！`);
+  triggerShake(document.querySelector(".game-wrapper"));
+
+  setTimeout(() => {
+    playerHp -= stage.enemyDamage;
+    updateBars();
+
+    if (playerHp <= 0) {
+      setLog(`プレイヤーは倒れてしまった…！科学実験をやり直そう。`);
+      showRestartButton();
+    } else {
+      setLog(`プレイヤーは ${stage.enemyDamage} のダメージを受けた！次の作戦を選ぼう。`);
+      isBusy = false;
+    }
+  }, 800);
+}
+
+function showNextStageButton() {
+  actionGrid.innerHTML = "";
+  const btn = document.createElement("button");
+  btn.className = "btn next-btn";
+  btn.style.display = "block";
+  btn.innerText = "次のステージへ進む ➔";
+  btn.onclick = () => {
+    currentStage++;
+    initStage();
+  };
+  actionGrid.appendChild(btn);
+}
+
+function showRestartButton() {
+  actionGrid.innerHTML = "";
+  const btn = document.createElement("button");
+  btn.className = "btn next-btn";
+  btn.style.display = "block";
+  btn.innerText = "もう一度やり直す 🔄";
+  btn.onclick = () => {
+    currentStage = 0;
+    playerHp = 100;
+    initStage();
+  };
+  actionGrid.appendChild(btn);
+}
+
+function showGameClear() {
+  enemySprite.innerText = "🏆";
+  setLog("【GAME CLEAR!!】すべての現象を科学の力で解明し、世界に平和が戻った！君は立派なマスター・サイエンティストだ！");
+  actionGrid.innerHTML = "";
+  const btn = document.createElement("button");
+  btn.className = "btn next-btn";
+  btn.style.display = "block";
+  btn.innerText = "最初からもう一度あそぶ";
+  btn.onclick = () => {
+    currentStage = 0;
+    playerHp = 100;
+    initStage();
+  };
+  actionGrid.appendChild(btn);
+}
+
+// 開始
+initStage();
+</script>
+
+</body>
+</html>

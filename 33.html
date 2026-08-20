@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>3Dアスレチックゲーム（敵付き）</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #222;
+            font-family: sans-serif;
+        }
+        #info {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            pointer-events: none;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+        h1 { margin: 0 0 5px 0; font-size: 24px; }
+        p { margin: 0; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h1>3D アスレチックゲーム</h1>
+        <p>【操作】 WASD or 矢印キー：移動 ／ スペース：ジャンプ<br><span style="color: #00d2d3;">■青い敵</span>に当たらないようにゴールを目指そう！</p>
+    </div>
+
+    <!-- Three.jsをCDNから読み込み -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // 1. シーン・カメラ・レンダラーの基本設定
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87ceeb); // 空の色（水色）
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 2. ライティング（照明）
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
+
+        // 3. プレイヤー（赤い立方体）の作成
+        const playerGeo = new THREE.BoxGeometry(1, 1, 1);
+        const playerMat = new THREE.MeshStandardMaterial({ color: 0xff4757 });
+        const player = new THREE.Mesh(playerGeo, playerMat);
+        player.position.set(0, 3, 0);
+        scene.add(player);
+
+        // 4. アスレチックの足場を作成
+        const platforms = [];
+        const platformMat = new THREE.MeshStandardMaterial({ color: 0x2ed573 }); // 緑の足場
+        const goalMat = new THREE.MeshStandardMaterial({ color: 0xffa502 });     // ゴールの足場（オレンジ）
+
+        function createPlatform(x, y, z, w, h, d, isGoal = false) {
+            const geo = new THREE.BoxGeometry(w, h, d);
+            const mat = isGoal ? goalMat : platformMat;
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+            platforms.push({ x, y, z, w, h, d, isGoal });
+        }
+
+        // コースの設計
+        createPlatform(0, 0, 0, 4, 1, 4);       // スタート地点
+        createPlatform(0, 1, -6, 3, 1, 3);      // 足場1
+        createPlatform(2, 2, -12, 2.5, 1, 2.5); // 足場2
+        createPlatform(-2, 3, -18, 2.5, 1, 2.5); // 足場3
+        createPlatform(0, 4, -24, 4, 1, 4, true); // ゴール地点！
+
+        // 5. 敵（動く障害物）の作成
+        const enemies = [];
+        const enemyGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+        const enemyMat = new THREE.MeshStandardMaterial({ color: 0x00d2d3 }); // 水色の敵
+
+        function createEnemy(x, y, z, minX, maxX) {
+            const mesh = new THREE.Mesh(enemyGeo, enemyMat);
+            mesh.position.set(x, y, z);
+            scene.add(mesh);
+            enemies.push({ mesh, x, y, z, minX, maxX, speed: 0.05 });
+        }
+
+        // 足場1と足場2の間に敵を配置して左右に動かす
+        createEnemy(0, 1.5, -6, -1.5, 1.5);
+        createEnemy(2, 2.5, -12, 0.5, 3.5);
+
+        // 6. 操作と物理挙動の変数
+        let velocityY = 0;
+        const gravity = 0.015;
+        const jumpForce = 0.28;
+        let isGrounded = false;
+
+        const keys = {};
+        window.addEventListener('keydown', (e) => keys[e.code] = true);
+        window.addEventListener('keyup', (e) => keys[e.code] = false);
+
+        // 7. ゲームループ（毎フレームの処理）
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // プレイヤーの移動
+            const speed = 0.1;
+            if (keys['KeyW'] || keys['ArrowUp']) player.position.z -= speed;
+            if (keys['KeyS'] || keys['ArrowDown']) player.position.z += speed;
+            if (keys['KeyA'] || keys['ArrowLeft']) player.position.x -= speed;
+            if (keys['KeyD'] || keys['ArrowRight']) player.position.x += speed;
+
+            // ジャンプ処理
+            if (keys['Space'] && isGrounded) {
+                velocityY = jumpForce;
+                isGrounded = false;
+            }
+
+            // 重力を適用
+            velocityY -= gravity;
+            player.position.y += velocityY;
+
+            // 敵を動かす処理 ＆ 当たり判定
+            for (let e of enemies) {
+                // 左右に往復移動
+                e.mesh.position.x += e.speed;
+                if (e.mesh.position.x > e.maxX || e.mesh.position.x < e.minX) {
+                    e.speed *= -1; // 端に着いたら方向転換
+                }
+
+                // プレイヤーと敵の当たり判定（簡易的な距離判定）
+                const dx = player.position.x - e.mesh.position.x;
+                const dy = player.position.y - e.mesh.position.y;
+                const dz = player.position.z - e.mesh.position.z;
+                const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+                // ぶつかったらスタートに戻す
+                if (distance < 0.9) {
+                    alert('💥 敵に当たってしまった！最初からやり直し！');
+                    player.position.set(0, 3, 0);
+                    velocityY = 0;
+                }
+            }
+
+            // 足場との当たり判定（着地判定）
+            const pW = 1, pH = 1, pD = 1;
+            for (let p of platforms) {
+                const minX = p.x - p.w / 2 - pW / 2;
+                const maxX = p.x + p.w / 2 + pW / 2;
+                const minZ = p.z - p.d / 2 - pD / 2;
+                const maxZ = p.z + p.d / 2 + pD / 2;
+
+                if (player.position.x >= minX && player.position.x <= maxX &&
+                    player.position.z >= minZ && player.position.z <= maxZ) {
+                    
+                    const platformTop = p.y + p.h / 2;
+                    const playerBottom = player.position.y - pH / 2;
+
+                    if (velocityY <= 0 && playerBottom <= platformTop && player.position.y >= platformTop) {
+                        player.position.y = platformTop + pH / 2;
+                        velocityY = 0;
+                        isGrounded = true;
+
+                        // ゴール判定
+                        if (p.isGoal) {
+                            alert('🎉 ゴールおめでとうございます！ 🎉');
+                            player.position.set(0, 3, 0);
+                        }
+                    }
+                }
+            }
+
+            // 落下判定（下に落ちたらスタートに戻る）
+            if (player.position.y < -10) {
+                player.position.set(0, 3, 0);
+                velocityY = 0;
+            }
+
+            // カメラがプレイヤーを追いかける
+            camera.position.x = player.position.x;
+            camera.position.y = player.position.y + 4;
+            camera.position.z = player.position.z + 8;
+            camera.lookAt(player.position.x, player.position.y, player.position.z);
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // ウィンドウサイズ変更対応
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
