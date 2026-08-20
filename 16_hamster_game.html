@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ハムスター育成ゲーム</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: linear-gradient(#bfe9ff, #fff1c8);
+    color: #5b3a1e;
+    text-align: center;
+  }
+  h1 { margin: 14px 8px 8px; }
+  #game {
+    width: min(900px, 96vw);
+    margin: 0 auto 24px;
+    background: #fff;
+    border: 6px solid #c99758;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 10px 28px rgba(0,0,0,.18);
+  }
+  #status {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(120px, 1fr));
+    gap: 10px;
+    padding: 12px;
+    background: #fff7da;
+  }
+  .meter { font-size: 14px; font-weight: 700; }
+  .bar { height: 18px; background: #ddd; border-radius: 99px; overflow: hidden; margin-top: 4px; }
+  .fill { height: 100%; width: 80%; transition: width .25s; }
+  #hungerBar { background: #ff944d; }
+  #happyBar { background: #ff71ae; }
+  #energyBar { background: #62c7ff; }
+  #cleanBar { background: #65d975; }
+
+  #room {
+    height: 410px;
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(#dff5ff 0 64%, #e4b97c 64% 100%);
+  }
+  #window {
+    position: absolute;
+    left: 38px; top: 28px;
+    width: 135px; height: 105px;
+    background: #8fdcff;
+    border: 8px solid #fff;
+    box-shadow: 0 0 0 4px #b77a48;
+  }
+  #window::before, #window::after { content:""; position:absolute; background:#fff; }
+  #window::before { width:7px; height:100%; left:56px; top:0; }
+  #window::after { height:7px; width:100%; left:0; top:45px; }
+  #house {
+    position:absolute; right:45px; bottom:42px;
+    width:160px; height:125px;
+    background:#e8765b;
+    border-radius:22px 22px 5px 5px;
+  }
+  #door {
+    position:absolute; width:58px; height:74px;
+    background:#6a402b; bottom:0; left:51px;
+    border-radius:30px 30px 0 0;
+  }
+  #bowl {
+    position:absolute; left:90px; bottom:38px;
+    width:110px; height:38px;
+    background:#6fb6ff; border:4px solid #3b84cc;
+    border-radius:10px 10px 42px 42px;
+  }
+  #poop { position:absolute; left:590px; bottom:35px; font-size:34px; display:none; }
+
+  #hamster {
+    position:absolute;
+    left:355px; bottom:48px;
+    width:155px; height:128px;
+    background:#d99b58;
+    border-radius:50% 50% 44% 44%;
+    transition:left .6s, bottom .35s, transform .2s;
+    box-shadow: inset 0 -8px 0 rgba(0,0,0,.05);
+  }
+  .ear { position:absolute; width:44px; height:44px; background:#bb7547; border-radius:50%; top:-11px; }
+  .ear.left { left:15px; } .ear.right { right:15px; }
+  .eye { position:absolute; width:16px; height:21px; background:#171717; border-radius:50%; top:43px; }
+  .eye.left { left:40px; } .eye.right { right:40px; }
+  .shine { position:absolute; width:5px; height:5px; background:#fff; border-radius:50%; left:3px; top:3px; }
+  #nose { position:absolute; width:16px; height:11px; background:#ff8799; border-radius:50%; left:69px; top:70px; }
+  #mouth { position:absolute; left:69px; top:81px; font-size:23px; }
+  .cheek { position:absolute; width:26px; height:15px; background:#f69494; border-radius:50%; top:72px; }
+  .cheek.left { left:19px; } .cheek.right { right:19px; }
+
+  #message { min-height:48px; padding:12px; font-size:20px; font-weight:800; background:#fffdf5; }
+  #info { padding:10px; background:#f5e6c4; font-size:18px; }
+  #buttons { padding:14px; background:#fff4df; }
+  button {
+    border:0; border-radius:12px; padding:12px 16px; margin:5px;
+    font-size:16px; font-weight:800; cursor:pointer;
+    box-shadow:0 4px 0 rgba(0,0,0,.2);
+  }
+  button:active { transform: translateY(3px); box-shadow:0 1px 0 rgba(0,0,0,.2); }
+  .food{background:#ffbd5b}.play{background:#ff8dbb}.sleep{background:#8bd8ff}.clean{background:#8be08f}.work{background:#ccb0ff}
+
+  .jump { animation: jump .5s; }
+  @keyframes jump { 50% { transform: translateY(-36px) scale(1.03); } }
+  .sleeping { animation: sleep 1.4s infinite; }
+  @keyframes sleep { 50% { transform: scale(.95); } }
+
+  #gameOver {
+    position:absolute; inset:0; display:none;
+    background:rgba(0,0,0,.72); color:#fff;
+    z-index:5; align-items:center; justify-content:center; flex-direction:column;
+    font-size:24px; padding:20px;
+  }
+  #gameOver button { background:#ffd35f; font-size:20px; }
+
+  @media (max-width: 700px) {
+    #status { grid-template-columns: repeat(2, 1fr); }
+    #room { height: 360px; }
+    #hamster { left: 42%; transform: translateX(-50%); }
+    #house { right: 18px; transform: scale(.85); transform-origin: bottom right; }
+    #bowl { left: 24px; }
+    #poop { left: 64%; }
+  }
+</style>
+</head>
+<body>
+<h1>🐹 ハムスター育成ゲーム 🐹</h1>
+<div id="game">
+  <div id="status">
+    <div class="meter">🍎 おなか<div class="bar"><div class="fill" id="hungerBar"></div></div></div>
+    <div class="meter">💖 しあわせ<div class="bar"><div class="fill" id="happyBar"></div></div></div>
+    <div class="meter">⚡ げんき<div class="bar"><div class="fill" id="energyBar"></div></div></div>
+    <div class="meter">✨ きれい<div class="bar"><div class="fill" id="cleanBar"></div></div></div>
+  </div>
+
+  <div id="room">
+    <div id="window"></div>
+    <div id="bowl"></div>
+    <div id="house"><div id="door"></div></div>
+    <div id="poop">💩</div>
+
+    <div id="hamster">
+      <div class="ear left"></div><div class="ear right"></div>
+      <div class="eye left"><div class="shine"></div></div>
+      <div class="eye right"><div class="shine"></div></div>
+      <div class="cheek left"></div><div class="cheek right"></div>
+      <div id="nose"></div><div id="mouth">ᴗ</div>
+    </div>
+
+    <div id="gameOver">
+      <div>🐹 ハムスターが元気をなくしてしまった…</div>
+      <button onclick="restart()">もう一度育てる</button>
+    </div>
+  </div>
+
+  <div id="message">ハムスターを大切に育てよう！</div>
+  <div id="info">🪙 コイン：<b id="coin">10</b>　⭐ レベル：<b id="level">1</b>　📅 日：<b id="day">1</b></div>
+  <div id="buttons">
+    <button class="food" onclick="feed()">🥕 ごはん（2コイン）</button>
+    <button class="play" onclick="playHamster()">🎾 あそぶ</button>
+    <button class="sleep" onclick="sleepHamster()">💤 ねる</button>
+    <button class="clean" onclick="cleanRoom()">🧹 そうじ</button>
+    <button class="work" onclick="work()">💰 おてつだい</button>
+  </div>
+</div>
+
+<script>
+let hunger = 80, happy = 80, energy = 80, clean = 90;
+let coins = 10, level = 1, exp = 0, day = 1;
+let sleeping = false, ended = false;
+
+const hamster = document.getElementById('hamster');
+const message = document.getElementById('message');
+const clamp = v => Math.max(0, Math.min(100, v));
+
+function update() {
+  hunger = clamp(hunger); happy = clamp(happy); energy = clamp(energy); clean = clamp(clean);
+  hungerBar.style.width = hunger + '%';
+  happyBar.style.width = happy + '%';
+  energyBar.style.width = energy + '%';
+  cleanBar.style.width = clean + '%';
+  coin.textContent = coins; levelEl().textContent = level; dayEl().textContent = day;
+  poop.style.display = clean < 40 ? 'block' : 'none';
+  if (!ended && (hunger <= 0 || happy <= 0 || energy <= 0)) endGame();
+}
+function levelEl(){ return document.getElementById('level'); }
+function dayEl(){ return document.getElementById('day'); }
+function bounce(){ hamster.classList.remove('jump'); void hamster.offsetWidth; hamster.classList.add('jump'); setTimeout(()=>hamster.classList.remove('jump'),500); }
+function checkLevel(){
+  const need = level * 10;
+  if (exp >= need) { exp -= need; level++; coins += 5; message.textContent = `🎉 レベルアップ！ レベル${level}！ +5コイン！`; }
+}
+function feed(){
+  if (ended || sleeping) return;
+  if (coins < 2) return message.textContent = '🪙 コインがたりないよ！';
+  if (hunger >= 100) return message.textContent = '🐹 もうおなかいっぱい！';
+  coins -= 2; hunger += 25; happy += 5; exp += 2; hamster.style.left = '120px'; bounce();
+  message.textContent = '🥕 ハムスター「おいしい！」'; checkLevel(); update();
+}
+function playHamster(){
+  if (ended || sleeping) return;
+  if (energy < 15) return message.textContent = '😴 つかれていて遊べないよ。';
+  happy += 25; energy -= 15; hunger -= 8; exp += 3;
+  hamster.style.left = Math.floor(Math.random()*420 + 150) + 'px'; bounce();
+  message.textContent = '🎾 ハムスターと遊んだ！'; checkLevel(); update();
+}
+function sleepHamster(){
+  if (ended || sleeping) return;
+  sleeping = true; hamster.classList.add('sleeping'); hamster.style.left = '680px';
+  message.textContent = '💤 ハムスターは寝ています…';
+  setTimeout(()=>{
+    energy += 50; hunger -= 10; sleeping = false; hamster.classList.remove('sleeping'); hamster.style.left = '355px';
+    message.textContent = '🐹 よく寝て元気になった！'; update();
+  }, 3000);
+}
+function cleanRoom(){
+  if (ended || sleeping) return;
+  clean = 100; happy += 5; exp += 1; bounce(); message.textContent = '✨ お部屋がピカピカになった！'; checkLevel(); update();
+}
+function work(){
+  if (ended || sleeping) return;
+  if (energy < 20) return message.textContent = '😴 つかれていてお手伝いできないよ。';
+  energy -= 20; hunger -= 10; const reward = Math.floor(Math.random()*4)+2; coins += reward; exp += 2; bounce();
+  message.textContent = `💰 お手伝い成功！ ${reward}コインもらった！`; checkLevel(); update();
+}
+function endGame(){ ended = true; document.getElementById('gameOver').style.display = 'flex'; }
+function restart(){
+  hunger=80; happy=80; energy=80; clean=90; coins=10; level=1; exp=0; day=1; sleeping=false; ended=false;
+  document.getElementById('gameOver').style.display='none'; hamster.classList.remove('sleeping'); hamster.style.left='355px';
+  message.textContent='🐹 新しいハムスターを育てよう！'; update();
+}
+setInterval(()=>{
+  if (ended || sleeping) return;
+  hunger -= 2; happy -= 1; energy -= 1; clean -= .7; update();
+}, 2000);
+setInterval(()=>{
+  if (ended) return;
+  day++; coins += level; message.textContent = `🌞 ${day}日目！ ${level}コインもらった！`; update();
+}, 20000);
+update();
+</script>
+</body>
+</html>

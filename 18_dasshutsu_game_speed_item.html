@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>アイテム脱出ゲーム</title>
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:#091018;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+    min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:14px;
+  }
+  h1{margin:4px 0 8px;font-size:28px}
+  .hud{
+    width:min(940px,96vw);display:flex;justify-content:space-between;gap:12px;
+    flex-wrap:wrap;margin-bottom:8px;font-weight:800
+  }
+  canvas{
+    width:min(940px,96vw);height:auto;border:3px solid #637083;background:#111821;
+    box-shadow:0 0 30px rgba(0,0,0,.7);image-rendering:pixelated
+  }
+  .help{width:min(940px,96vw);margin-top:10px;color:#cbd5df;line-height:1.6}
+  button{
+    margin-top:8px;padding:10px 18px;border:0;border-radius:10px;font-weight:800;font-size:16px;cursor:pointer
+  }
+</style>
+</head>
+<body>
+<h1>🗝️ アイテム脱出ゲーム</h1>
+
+<div class="hud">
+  <div id="keysText">かぎ：0 / 3</div>
+  <div id="itemText">バリア：0　ストップ：0</div>
+  <div id="statusText">3つのかぎを集めて脱出しよう！</div>
+</div>
+
+<canvas id="game" width="940" height="580"></canvas>
+<button id="restart">もう一度あそぶ</button>
+
+<div class="help">
+  移動：矢印キー / WASD　｜　バリアを使う：B　｜　ストップを使う：スペース<br>
+  黄色＝かぎ　水色＝スピードアップ　紫＝バリア　白＝ストップアイテム<br>
+  3つのかぎを集めると右下の出口が開きます。3体の敵に捕まらないように脱出してください。
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+const keysText=document.getElementById("keysText");
+const itemText=document.getElementById("itemText");
+const statusText=document.getElementById("statusText");
+const restartBtn=document.getElementById("restart");
+
+const W=canvas.width,H=canvas.height;
+const pressed={};
+
+const walls=[
+  {x:150,y:60,w:30,h:260},
+  {x:290,y:190,w:260,h:30},
+  {x:520,y:50,w:30,h:170},
+  {x:680,y:160,w:30,h:300},
+  {x:210,y:390,w:300,h:30},
+  {x:60,y:280,w:90,h:30},
+  {x:550,y:330,w:130,h:30},
+  {x:770,y:70,w:30,h:210},
+  {x:350,y:470,w:250,h:30}
+];
+const exit={x:850,y:505,w:60,h:55};
+
+let player,enemies,items,gameState,lastTime;
+let barrierCharges=0,stopCharges=0;
+let barrierTimer=0,stopTimer=0,speedTimer=0;
+
+function resetGame(){
+  player={x:45,y:45,r:14,baseSpeed:155};
+  enemies=[
+    {x:865,y:80,r:17,speed:92,color:"#e64c4c"},
+    {x:820,y:300,r:17,speed:102,color:"#ff7b3f"},
+    {x:100,y:520,r:17,speed:88,color:"#d94cff"}
+  ];
+
+  items=[
+    {type:"key",x:240,y:110,r:10,taken:false},
+    {type:"key",x:600,y:270,r:10,taken:false},
+    {type:"key",x:785,y:495,r:10,taken:false},
+
+    {type:"speed",x:95,y:190,r:11,taken:false},
+    {type:"speed",x:610,y:90,r:11,taken:false},
+
+    {type:"barrier",x:420,y:300,r:11,taken:false},
+    {type:"barrier",x:735,y:390,r:11,taken:false},
+
+    {type:"stop",x:260,y:515,r:11,taken:false},
+    {type:"stop",x:845,y:390,r:11,taken:false}
+  ];
+
+  barrierCharges=0;
+  stopCharges=0;
+  barrierTimer=0;
+  stopTimer=0;
+  speedTimer=0;
+  gameState="playing";
+  statusText.textContent="3つのかぎを集めて脱出しよう！";
+  updateHUD();
+  lastTime=performance.now();
+}
+
+function updateHUD(){
+  const n=items.filter(i=>i.type==="key"&&i.taken).length;
+  keysText.textContent=`かぎ：${n} / 3`;
+  itemText.textContent=`バリア：${barrierCharges}　ストップ：${stopCharges}`;
+}
+
+function circleRectCollision(cx,cy,r,rect){
+  const qx=Math.max(rect.x,Math.min(cx,rect.x+rect.w));
+  const qy=Math.max(rect.y,Math.min(cy,rect.y+rect.h));
+  const dx=cx-qx,dy=cy-qy;
+  return dx*dx+dy*dy<r*r;
+}
+
+function canMove(entity,nx,ny){
+  if(nx-entity.r<0||nx+entity.r>W||ny-entity.r<0||ny+entity.r>H)return false;
+  for(const wall of walls){
+    if(circleRectCollision(nx,ny,entity.r,wall))return false;
+  }
+  return true;
+}
+
+function moveWithWalls(entity,dx,dy){
+  const nx=entity.x+dx;
+  if(canMove(entity,nx,entity.y))entity.x=nx;
+  const ny=entity.y+dy;
+  if(canMove(entity,entity.x,ny))entity.y=ny;
+}
+
+function useBarrier(){
+  if(gameState!=="playing")return;
+  if(barrierCharges>0&&barrierTimer<=0){
+    barrierCharges--;
+    barrierTimer=4.0;
+    statusText.textContent="バリア発動！ 4秒間まもられる！";
+    updateHUD();
+  }
+}
+
+function useStop(){
+  if(gameState!=="playing")return;
+  if(stopCharges>0&&stopTimer<=0){
+    stopCharges--;
+    stopTimer=3.0;
+    statusText.textContent="敵を3秒間ストップ！";
+    updateHUD();
+  }
+}
+
+function update(dt){
+  if(gameState!=="playing")return;
+
+  barrierTimer=Math.max(0,barrierTimer-dt);
+  stopTimer=Math.max(0,stopTimer-dt);
+  speedTimer=Math.max(0,speedTimer-dt);
+
+  let dx=0,dy=0;
+  if(pressed["ArrowLeft"]||pressed["a"]||pressed["A"])dx--;
+  if(pressed["ArrowRight"]||pressed["d"]||pressed["D"])dx++;
+  if(pressed["ArrowUp"]||pressed["w"]||pressed["W"])dy--;
+  if(pressed["ArrowDown"]||pressed["s"]||pressed["S"])dy++;
+
+  if(dx||dy){
+    const len=Math.hypot(dx,dy);
+    const speed=player.baseSpeed*(speedTimer>0?2.15:1);
+    moveWithWalls(player,dx/len*speed*dt,dy/len*speed*dt);
+  }
+
+  const keyCount=items.filter(i=>i.type==="key"&&i.taken).length;
+
+  if(stopTimer<=0){
+    enemies.forEach((enemy,index)=>{
+      const vx=player.x-enemy.x,vy=player.y-enemy.y;
+      const d=Math.hypot(vx,vy)||1;
+      const speed=enemy.speed+keyCount*8;
+
+      const oldX=enemy.x,oldY=enemy.y;
+      moveWithWalls(enemy,vx/d*speed*dt,vy/d*speed*dt);
+
+      // 壁に強く引っかかったときに横方向へずらして回り込みやすくする
+      if(Math.abs(enemy.x-oldX)<0.05 && Math.abs(enemy.y-oldY)<0.05){
+        const side=(index%2===0?1:-1);
+        moveWithWalls(enemy,-vy/d*speed*dt*side*1.8,vx/d*speed*dt*side*1.8);
+      }
+    });
+  }
+
+  for(const item of items){
+    if(item.taken)continue;
+    if(Math.hypot(player.x-item.x,player.y-item.y)<player.r+item.r+3){
+      item.taken=true;
+
+      if(item.type==="key"){
+        const n=items.filter(i=>i.type==="key"&&i.taken).length;
+        statusText.textContent=n===3?"全部のかぎを集めた！ 出口へ！":`かぎを取った！ あと${3-n}こ`;
+      }
+      if(item.type==="speed"){
+        speedTimer=7.0;
+        statusText.textContent="スピードアップ！ 7秒間かなり速い！";
+      }
+      if(item.type==="barrier"){
+        barrierCharges++;
+        statusText.textContent="バリアを手に入れた！ Bキーで使える";
+      }
+      if(item.type==="stop"){
+        stopCharges++;
+        statusText.textContent="ストップを手に入れた！ スペースで使える";
+      }
+      updateHUD();
+    }
+  }
+
+  for(const enemy of enemies){
+    if(Math.hypot(player.x-enemy.x,player.y-enemy.y)<player.r+enemy.r){
+      if(barrierTimer>0){
+        const vx=enemy.x-player.x,vy=enemy.y-player.y;
+        const d=Math.hypot(vx,vy)||1;
+        moveWithWalls(enemy,vx/d*65,vy/d*65);
+      }else{
+        gameState="lose";
+        statusText.textContent="敵につかまった！ ゲームオーバー";
+      }
+    }
+  }
+
+  if(circleRectCollision(player.x,player.y,player.r,exit)){
+    if(keyCount===3){
+      gameState="win";
+      statusText.textContent="脱出成功！ おめでとう！";
+    }else{
+      statusText.textContent=`まだかぎが${3-keyCount}こ足りない！`;
+    }
+  }
+}
+
+function drawItem(item){
+  if(item.taken)return;
+  ctx.save();
+  ctx.translate(item.x,item.y);
+
+  if(item.type==="key"){
+    ctx.strokeStyle="#ffd84a";ctx.fillStyle="#ffd84a";ctx.lineWidth=5;
+    ctx.beginPath();ctx.arc(-4,0,7,0,Math.PI*2);ctx.stroke();
+    ctx.fillRect(3,-3,15,6);ctx.fillRect(12,2,5,7);
+  }else if(item.type==="speed"){
+    ctx.fillStyle="#5ee7ff";
+    ctx.beginPath();
+    ctx.moveTo(-10,-4);ctx.lineTo(0,-4);ctx.lineTo(-2,-11);
+    ctx.lineTo(12,0);ctx.lineTo(2,0);ctx.lineTo(4,9);
+    ctx.closePath();ctx.fill();
+  }else if(item.type==="barrier"){
+    ctx.fillStyle="#b45cff";
+    ctx.beginPath();ctx.arc(0,0,11,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle="#ead8ff";ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(0,0,7,0,Math.PI*2);ctx.stroke();
+  }else if(item.type==="stop"){
+    ctx.fillStyle="#f5f5f5";
+    ctx.beginPath();ctx.arc(0,0,11,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="#20252c";
+    ctx.fillRect(-5,-5,4,10);ctx.fillRect(2,-5,4,10);
+  }
+  ctx.restore();
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+
+  ctx.fillStyle="#101821";ctx.fillRect(0,0,W,H);
+
+  ctx.strokeStyle="rgba(255,255,255,.025)";
+  for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+
+  const allKeys=items.filter(i=>i.type==="key").every(i=>i.taken);
+  ctx.fillStyle=allKeys?"#35e97a":"#245d3c";
+  ctx.fillRect(exit.x,exit.y,exit.w,exit.h);
+  ctx.fillStyle="#fff";ctx.font="bold 14px sans-serif";ctx.textAlign="center";
+  ctx.fillText("EXIT",exit.x+exit.w/2,exit.y+33);
+
+  for(const wall of walls){
+    ctx.fillStyle="#586575";ctx.fillRect(wall.x,wall.y,wall.w,wall.h);
+    ctx.fillStyle="#748195";ctx.fillRect(wall.x+4,wall.y+4,wall.w-8,wall.h-8);
+  }
+
+  items.forEach(drawItem);
+
+  enemies.forEach((enemy,idx)=>{
+    ctx.fillStyle=stopTimer>0?"#aab4c2":enemy.color;
+    ctx.beginPath();ctx.arc(enemy.x,enemy.y,enemy.r,0,Math.PI*2);ctx.fill();
+
+    ctx.fillStyle="#fff";
+    ctx.beginPath();
+    ctx.arc(enemy.x-6,enemy.y-5,4,0,Math.PI*2);
+    ctx.arc(enemy.x+6,enemy.y-5,4,0,Math.PI*2);
+    ctx.fill();
+
+    ctx.fillStyle="#111";
+    ctx.beginPath();
+    ctx.arc(enemy.x-6,enemy.y-5,2,0,Math.PI*2);
+    ctx.arc(enemy.x+6,enemy.y-5,2,0,Math.PI*2);
+    ctx.fill();
+
+    if(stopTimer>0){
+      ctx.fillStyle="#d8f0ff";ctx.font="bold 12px sans-serif";
+      ctx.fillText("STOP",enemy.x,enemy.y-25);
+    }
+  });
+
+  if(barrierTimer>0){
+    ctx.strokeStyle="#cf83ff";ctx.lineWidth=5;
+    ctx.beginPath();ctx.arc(player.x,player.y,23,0,Math.PI*2);ctx.stroke();
+  }
+
+  ctx.fillStyle=speedTimer>0?"#75f0ff":"#58b8ff";
+  ctx.beginPath();ctx.arc(player.x,player.y,player.r,0,Math.PI*2);ctx.fill();
+
+  ctx.fillStyle="#fff";
+  ctx.beginPath();
+  ctx.arc(player.x-5,player.y-3,3,0,Math.PI*2);
+  ctx.arc(player.x+5,player.y-3,3,0,Math.PI*2);
+  ctx.fill();
+
+  if(gameState==="lose"||gameState==="win"){
+    ctx.fillStyle="rgba(0,0,0,.68)";ctx.fillRect(0,0,W,H);
+    ctx.textAlign="center";
+    ctx.fillStyle=gameState==="win"?"#67f599":"#ff6969";
+    ctx.font="bold 54px sans-serif";
+    ctx.fillText(gameState==="win"?"脱出成功！":"ゲームオーバー",W/2,H/2-12);
+    ctx.fillStyle="#fff";ctx.font="24px sans-serif";
+    ctx.fillText("下のボタンでもう一度あそべます",W/2,H/2+38);
+  }
+}
+
+function loop(now){
+  const dt=Math.min((now-lastTime)/1000,.035);
+  lastTime=now;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener("keydown",e=>{
+  pressed[e.key]=true;
+  if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key))e.preventDefault();
+  if(e.key==="b"||e.key==="B")useBarrier();
+  if(e.key===" ")useStop();
+});
+window.addEventListener("keyup",e=>pressed[e.key]=false);
+restartBtn.addEventListener("click",resetGame);
+
+resetGame();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
